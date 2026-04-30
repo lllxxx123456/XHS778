@@ -1,4 +1,4 @@
-﻿// Tweak.xm - XHS778 小红书表情包保存助手
+// Tweak.xm - XHS778 小红书表情包保存助手
 // Author: lllxxx123456
 // 测试版本：XHS 9.28.1
 
