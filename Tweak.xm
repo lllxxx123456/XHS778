@@ -389,96 +389,197 @@ static void XHS778SaveImageObject(UIImage *image) {
 @end
 
 
-#pragma mark - KCMenu 风格设置 VC
-
-static const CGFloat kXHS778CardCornerRadius = 18.0;
-static const CGFloat kXHS778CellHeight = 44.0;
-static const CGFloat kXHS778HeaderHeight = 92.0;
-static const CGFloat kXHS778FooterHeight = 56.0;
+#pragma mark - 设置 VC（原创设计 · 自适应深浅色）
 
 @interface XHS778SettingsVC : UIViewController <UITableViewDelegate, UITableViewDataSource>
-@property (nonatomic, strong) UIView *settingsCard;
+@property (nonatomic, strong) UIView *card;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) NSMutableArray<NSMutableDictionary *> *menuSections;
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @end
 
 @implementation XHS778SettingsVC
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.30];
+    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
 
-    CGFloat screenWidth = CGRectGetWidth([UIScreen mainScreen].bounds);
-    CGFloat screenHeight = CGRectGetHeight([UIScreen mainScreen].bounds);
-    CGFloat cardWidth = MIN(screenWidth - 48, 700);
-    CGFloat cardHeight = MIN(screenHeight * 0.72, 580);
+    CGFloat sw = CGRectGetWidth([UIScreen mainScreen].bounds);
+    CGFloat sh = CGRectGetHeight([UIScreen mainScreen].bounds);
+    CGFloat cw = MIN(sw - 32, 380);
+    CGFloat ch = MIN(sh - 100, 620);
 
-    CGRect cardFrame = CGRectMake((screenWidth - cardWidth) / 2.0,
-                                  (screenHeight - cardHeight) / 2.0,
-                                  cardWidth, cardHeight);
-    self.settingsCard = [[UIView alloc] initWithFrame:cardFrame];
-    self.settingsCard.layer.cornerRadius = kXHS778CardCornerRadius;
-    self.settingsCard.layer.masksToBounds = YES;
-    [self.view addSubview:self.settingsCard];
+    self.card = [[UIView alloc] initWithFrame:CGRectMake((sw - cw) / 2.0, (sh - ch) / 2.0, cw, ch)];
+    self.card.layer.cornerRadius = 22;
+    self.card.layer.masksToBounds = YES;
+    [self.view addSubview:self.card];
 
-    UIBlurEffectStyle bs = UIBlurEffectStyleSystemThinMaterial;
-    UIVisualEffect *effect = [UIBlurEffect effectWithStyle:bs];
-    self.blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
-    self.blurView.frame = self.settingsCard.bounds;
+    UIBlurEffect *eff;
+    if (@available(iOS 13.0, *)) {
+        eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+    } else {
+        eff = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
+    }
+    self.blurView = [[UIVisualEffectView alloc] initWithEffect:eff];
+    self.blurView.frame = self.card.bounds;
     self.blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.settingsCard addSubview:self.blurView];
+    [self.card addSubview:self.blurView];
 
     [self _buildTopBar];
-    [self _buildContentArea];
-    [self _buildMenuData];
+    [self _buildSections];
+    [self _buildTable];
 
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(_onBackgroundTap:)];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(_onBgTap:)];
     tap.cancelsTouchesInView = NO;
     [self.view addGestureRecognizer:tap];
 }
 
 - (void)_buildTopBar {
-    UIView *topBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(self.settingsCard.bounds), 48)];
-    [self.blurView.contentView addSubview:topBar];
+    CGFloat W = self.card.bounds.size.width;
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 50)];
+    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.blurView.contentView addSubview:bar];
 
-    // 左上角 X 按钮：退出小红书应用
-    UIButton *exitButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    exitButton.frame = CGRectMake(8, 6, 36, 36);
-    exitButton.autoresizingMask = UIViewAutoresizingFlexibleRightMargin;
+    UIButton *exitBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    exitBtn.frame = CGRectMake(8, 7, 36, 36);
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
-        UIImage *img = [UIImage systemImageNamed:@"xmark.circle.fill" withConfiguration:cfg];
-        [exitButton setImage:img forState:UIControlStateNormal];
+        [exitBtn setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:cfg] forState:UIControlStateNormal];
     } else {
-        [exitButton setTitle:@"✕" forState:UIControlStateNormal];
-        exitButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+        [exitBtn setTitle:@"✕" forState:UIControlStateNormal];
     }
-    exitButton.tintColor = [UIColor secondaryLabelColor];
-    [exitButton addTarget:self action:@selector(_onExitApp) forControlEvents:UIControlEventTouchUpInside];
-    [topBar addSubview:exitButton];
+    exitBtn.tintColor = [UIColor labelColor];
+    [exitBtn addTarget:self action:@selector(_onExitApp) forControlEvents:UIControlEventTouchUpInside];
+    [bar addSubview:exitBtn];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:topBar.bounds];
-    title.text = @"XHS778";
-    title.textAlignment = NSTextAlignmentCenter;
-    title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-    title.textColor = [UIColor labelColor];
-    title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [topBar addSubview:title];
+    UILabel *t = [[UILabel alloc] initWithFrame:bar.bounds];
+    t.text = @"XHS778";
+    t.textAlignment = NSTextAlignmentCenter;
+    t.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    t.textColor = [UIColor labelColor];
+    t.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [bar addSubview:t];
 
-    UIButton *closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeButton.frame = CGRectMake(CGRectGetWidth(topBar.bounds) - 60, 6, 52, 36);
-    closeButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [closeButton setTitle:@"关闭" forState:UIControlStateNormal];
-    closeButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    [closeButton setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
-    [closeButton addTarget:self action:@selector(_onClose) forControlEvents:UIControlEventTouchUpInside];
-    [topBar addSubview:closeButton];
+    UIButton *doneBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    doneBtn.frame = CGRectMake(W - 64, 7, 56, 36);
+    doneBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [doneBtn setTitle:@"完成" forState:UIControlStateNormal];
+    doneBtn.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [doneBtn setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
+    [doneBtn addTarget:self action:@selector(_onClose) forControlEvents:UIControlEventTouchUpInside];
+    [bar addSubview:doneBtn];
 
-    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(0, CGRectGetMaxY(topBar.frame),
-                                                                 CGRectGetWidth(self.settingsCard.bounds), 0.5)];
-    separator.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.4];
-    [self.blurView.contentView addSubview:separator];
+    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 50, W, 0.5)];
+    sep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.4];
+    sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.blurView.contentView addSubview:sep];
+}
+
+- (void)_buildSections {
+    self.sections = @[
+        @{@"title": @"总开关", @"items": @[
+            @{@"icon": @"power.circle.fill", @"iconColor": @"red",
+              @"title": @"启用 XHS778",
+              @"detail": @"插件总开关，关闭后所有功能停用",
+              @"key": kXHS778EnabledKey, @"isMaster": @YES, @"type": @"switch"},
+        ]},
+        @{@"title": @"保存功能", @"items": @[
+            @{@"icon": @"text.bubble.fill", @"iconColor": @"orange",
+              @"title": @"长按评论保存",
+              @"detail": @"长按表情评论 → 显示「保存表情」",
+              @"key": kXHS778CommentSaveEnabledKey, @"type": @"switch"},
+            @{@"icon": @"photo.fill", @"iconColor": @"blue",
+              @"title": @"详情页保存",
+              @"detail": @"表情详情页「添加表情」下方加保存按钮",
+              @"key": kXHS778PreviewSaveEnabledKey, @"type": @"switch"},
+            @{@"icon": @"square.and.arrow.up.fill", @"iconColor": @"green",
+              @"title": @"发送菜单保存",
+              @"detail": @"长按已添加/推荐表情 → 圆形保存图标",
+              @"key": kXHS778SenderMenuSaveKey, @"type": @"switch"},
+        ]},
+        @{@"title": @"关于", @"items": @[
+            @{@"icon": @"doc.text.fill", @"iconColor": @"gray",
+              @"title": @"重新阅读使用须知",
+              @"type": @"action", @"action": @"showDisclaimer"},
+            @{@"icon": @"info.circle.fill", @"iconColor": @"gray",
+              @"title": @"版本",
+              @"detail": @"1.0-1 · 适配 XHS 9.28.1",
+              @"type": @"info"},
+        ]},
+    ];
+}
+
+- (void)_buildTable {
+    CGFloat W = self.card.bounds.size.width;
+    CGFloat H = self.card.bounds.size.height;
+
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 51, W, H - 51) style:UITableViewStyleGrouped];
+    self.tableView.backgroundColor = [UIColor clearColor];
+    self.tableView.delegate = self;
+    self.tableView.dataSource = self;
+    self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+    self.tableView.showsVerticalScrollIndicator = NO;
+    self.tableView.estimatedRowHeight = 0;
+    self.tableView.estimatedSectionHeaderHeight = 0;
+    self.tableView.estimatedSectionFooterHeight = 0;
+    self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 16, 0);
+
+    // tableHeaderView：图标 + 名称 + 版本
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 132)];
+    UIView *iconBg = [[UIView alloc] initWithFrame:CGRectMake((W - 64) / 2.0, 16, 64, 64)];
+    iconBg.layer.cornerRadius = 16;
+    iconBg.layer.masksToBounds = YES;
+    iconBg.backgroundColor = [UIColor systemRedColor];
+    iconBg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:iconBg.bounds];
+    iv.contentMode = UIViewContentModeCenter;
+    iv.tintColor = [UIColor whiteColor];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightSemibold];
+        iv.image = [UIImage systemImageNamed:@"face.smiling.fill" withConfiguration:cfg];
+    }
+    [iconBg addSubview:iv];
+    [header addSubview:iconBg];
+
+    UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(0, 84, W, 20)];
+    name.text = @"小红书表情包保存助手";
+    name.textAlignment = NSTextAlignmentCenter;
+    name.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    name.textColor = [UIColor labelColor];
+    name.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [header addSubview:name];
+
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, 106, W, 18)];
+    sub.text = @"v1.0-1  ·  XHS 9.28.1";
+    sub.textAlignment = NSTextAlignmentCenter;
+    sub.font = [UIFont systemFontOfSize:11];
+    sub.textColor = [UIColor secondaryLabelColor];
+    sub.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [header addSubview:sub];
+    self.tableView.tableHeaderView = header;
+
+    // tableFooterView：风险提示
+    UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 36)];
+    UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, W - 32, 36)];
+    tip.text = @"⚠ 仅供学习交流，请尊重原作者版权";
+    tip.font = [UIFont systemFontOfSize:11];
+    tip.textColor = [UIColor tertiaryLabelColor];
+    tip.textAlignment = NSTextAlignmentCenter;
+    tip.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [footer addSubview:tip];
+    self.tableView.tableFooterView = footer;
+
+    [self.blurView.contentView addSubview:self.tableView];
+}
+
+- (void)_onClose {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)_onBgTap:(UITapGestureRecognizer *)g {
+    CGPoint p = [g locationInView:self.view];
+    if (!CGRectContainsPoint(self.card.frame, p)) [self _onClose];
 }
 
 - (void)_onExitApp {
@@ -492,135 +593,36 @@ static const CGFloat kXHS778FooterHeight = 56.0;
     [self presentViewController:ac animated:YES completion:nil];
 }
 
-- (void)_buildContentArea {
-    CGFloat tableY = 49;
-    CGFloat tableHeight = CGRectGetHeight(self.settingsCard.bounds) - tableY - 36; // 底部留出 footer
-    UIView *tableContainer = [[UIView alloc] initWithFrame:CGRectMake(12, tableY,
-                                                                     CGRectGetWidth(self.settingsCard.bounds) - 24,
-                                                                     tableHeight)];
-    [self.blurView.contentView addSubview:tableContainer];
-
-    self.tableView = [[UITableView alloc] initWithFrame:tableContainer.bounds style:UITableViewStyleGrouped];
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.delegate = self;
-    self.tableView.dataSource = self;
-    self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    self.tableView.rowHeight = kXHS778CellHeight;
-    self.tableView.estimatedRowHeight = 0;
-    self.tableView.estimatedSectionHeaderHeight = 0;
-    self.tableView.estimatedSectionFooterHeight = 0;
-    self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.tableView.showsVerticalScrollIndicator = NO;
-    self.tableView.alwaysBounceVertical = YES;
-    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 12, 0);
-    [tableContainer addSubview:self.tableView];
-
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableContainer.bounds.size.width, kXHS778HeaderHeight)];
-
-    UIView *infoCard = [[UIView alloc] initWithFrame:CGRectMake(0, 12, headerView.bounds.size.width, kXHS778HeaderHeight - 16)];
-    infoCard.backgroundColor = [[UIColor secondarySystemBackgroundColor] colorWithAlphaComponent:0.65];
-    infoCard.layer.cornerRadius = 12;
-    infoCard.layer.masksToBounds = YES;
-    infoCard.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, infoCard.bounds.size.width - 32, 24)];
-    nameLabel.text = @"小红书表情包保存助手";
-    nameLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-    nameLabel.textColor = [UIColor labelColor];
-    nameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [infoCard addSubview:nameLabel];
-
-    UILabel *descLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 38, infoCard.bounds.size.width - 32, 18)];
-    descLabel.text = @"长按评论 / 表情详情 / 发送菜单 一键保存";
-    descLabel.font = [UIFont systemFontOfSize:12];
-    descLabel.textColor = [UIColor secondaryLabelColor];
-    descLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [infoCard addSubview:descLabel];
-
-    [headerView addSubview:infoCard];
-    self.tableView.tableHeaderView = headerView;
-
-    UIView *footerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableContainer.bounds.size.width, kXHS778FooterHeight)];
-    UILabel *tipLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, footerView.bounds.size.width - 32, 22)];
-    tipLabel.text = @"⚠ 仅用于学习交流，请尊重原作者版权";
-    tipLabel.font = [UIFont systemFontOfSize:11];
-    tipLabel.textColor = [UIColor tertiaryLabelColor];
-    tipLabel.textAlignment = NSTextAlignmentCenter;
-    tipLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [footerView addSubview:tipLabel];
-
-    UILabel *versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 28, footerView.bounds.size.width - 32, 18)];
-    versionLabel.text = @"在 XHS 9.28.1 中测试";
-    versionLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    versionLabel.textColor = [UIColor secondaryLabelColor];
-    versionLabel.textAlignment = NSTextAlignmentCenter;
-    versionLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [footerView addSubview:versionLabel];
-
-    self.tableView.tableFooterView = footerView;
-}
-
-- (void)_buildMenuData {
-    self.menuSections = [NSMutableArray arrayWithArray:@[
-        [NSMutableDictionary dictionaryWithDictionary:@{
-            @"title": @"总开关",
-            @"expanded": @YES,
-            @"items": @[
-                @{@"title": @"启用 XHS778",
-                  @"detail": @"插件总开关，关闭后所有功能停用",
-                  @"key": kXHS778EnabledKey,
-                  @"isMaster": @YES}
-            ]
-        }],
-        [NSMutableDictionary dictionaryWithDictionary:@{
-            @"title": @"保存功能",
-            @"expanded": @YES,
-            @"items": @[
-                @{@"title": @"长按评论保存表情",
-                  @"detail": @"在长按评论的菜单中显示「保存表情」",
-                  @"key": kXHS778CommentSaveEnabledKey},
-                @{@"title": @"表情详情页保存",
-                  @"detail": @"在表情详情页显示「保存」按钮",
-                  @"key": kXHS778PreviewSaveEnabledKey},
-                @{@"title": @"发送菜单保存表情",
-                  @"detail": @"长按已添加 / 推荐表情时显示下载图标",
-                  @"key": kXHS778SenderMenuSaveKey}
-            ]
-        }]
-    ]];
-}
-
-- (void)_onClose {
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
-
-- (void)_onBackgroundTap:(UITapGestureRecognizer *)gesture {
-    CGPoint p = [gesture locationInView:self.view];
-    if (!CGRectContainsPoint(self.settingsCard.frame, p)) {
-        [self _onClose];
-    }
+- (UIColor *)_iconColorWithName:(NSString *)name {
+    if ([name isEqualToString:@"red"]) return [UIColor systemRedColor];
+    if ([name isEqualToString:@"orange"]) return [UIColor systemOrangeColor];
+    if ([name isEqualToString:@"blue"]) return [UIColor systemBlueColor];
+    if ([name isEqualToString:@"green"]) return [UIColor systemGreenColor];
+    if ([name isEqualToString:@"gray"]) return [UIColor systemGrayColor];
+    return [UIColor systemRedColor];
 }
 
 #pragma mark - TableView DataSource & Delegate
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return self.menuSections.count;
+    return self.sections.count;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    NSDictionary *sectionData = self.menuSections[section];
-    BOOL expanded = [sectionData[@"expanded"] boolValue];
-    NSArray *items = sectionData[@"items"];
-    return expanded ? (1 + items.count) : 1;
+    return [self.sections[section][@"items"] count];
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return section == 0 ? 4.0 : 12.0;
+    return 36.0;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
     UIView *header = [[UIView alloc] init];
-    header.backgroundColor = [UIColor clearColor];
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(28, 8, 240, 22)];
+    l.text = self.sections[section][@"title"];
+    l.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    l.textColor = [UIColor secondaryLabelColor];
+    [header addSubview:l];
     return header;
 }
 
@@ -629,140 +631,140 @@ static const CGFloat kXHS778FooterHeight = 56.0;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row == 0) return kXHS778CellHeight;
-    return 60.0; // 子项行高
+    NSDictionary *item = self.sections[indexPath.section][@"items"][indexPath.row];
+    return item[@"detail"] ? 64.0 : 50.0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSDictionary *sectionData = self.menuSections[indexPath.section];
-    BOOL expanded = [sectionData[@"expanded"] boolValue];
-    NSArray *items = sectionData[@"items"];
+    NSDictionary *item = self.sections[indexPath.section][@"items"][indexPath.row];
+    NSArray *items = self.sections[indexPath.section][@"items"];
+    BOOL isFirst = (indexPath.row == 0);
+    BOOL isLast = (indexPath.row == items.count - 1);
 
-    if (indexPath.row == 0) {
-        return [self _headerCellAt:indexPath section:sectionData expanded:expanded];
-    }
-    NSDictionary *item = items[indexPath.row - 1];
-    return [self _switchCellAt:indexPath item:item];
-}
-
-- (UITableViewCell *)_headerCellAt:(NSIndexPath *)indexPath section:(NSDictionary *)sectionData expanded:(BOOL)expanded {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.backgroundColor = [UIColor clearColor];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
 
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, kXHS778CellHeight)];
-    card.backgroundColor = [[UIColor secondarySystemBackgroundColor] colorWithAlphaComponent:0.65];
+    CGFloat W = self.tableView.bounds.size.width;
+    CGFloat H = [self tableView:tableView heightForRowAtIndexPath:indexPath];
+
+    // 卡片背景：依据是否首/末 row 决定圆角
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(16, 0, W - 32, H)];
+    card.backgroundColor = [[UIColor secondarySystemBackgroundColor] colorWithAlphaComponent:0.85];
     card.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    if (expanded) {
-        card.layer.cornerRadius = 10;
-        card.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
-    } else {
-        card.layer.cornerRadius = 10;
-        card.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner |
-                                   kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
-    }
     card.layer.masksToBounds = YES;
-    [cell.contentView insertSubview:card atIndex:0];
-
-    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
-    icon.tintColor = [UIColor systemRedColor];
-    icon.frame = CGRectMake(14, (kXHS778CellHeight - 14) / 2.0, 14, 14);
-    icon.transform = expanded ? CGAffineTransformMakeRotation(M_PI_2) : CGAffineTransformIdentity;
-    [cell.contentView addSubview:icon];
-
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(40, 0,
-                                                                    self.tableView.bounds.size.width - 60,
-                                                                    kXHS778CellHeight)];
-    titleLabel.text = sectionData[@"title"];
-    titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    titleLabel.textColor = [UIColor labelColor];
-    titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [cell.contentView addSubview:titleLabel];
-
-    return cell;
-}
-
-- (UITableViewCell *)_switchCellAt:(NSIndexPath *)indexPath item:(NSDictionary *)item {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-    cell.backgroundColor = [UIColor clearColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-
-    NSInteger totalRows = [self tableView:self.tableView numberOfRowsInSection:indexPath.section];
-    BOOL isLast = (indexPath.row == totalRows - 1);
-    CGFloat cellHeight = [self tableView:self.tableView heightForRowAtIndexPath:indexPath];
-
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, cellHeight)];
-    card.backgroundColor = [[UIColor secondarySystemBackgroundColor] colorWithAlphaComponent:0.65];
-    card.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    if (isLast) {
-        card.layer.cornerRadius = 10;
+    if (isFirst && isLast) {
+        card.layer.cornerRadius = 14;
+    } else if (isFirst) {
+        card.layer.cornerRadius = 14;
+        card.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    } else if (isLast) {
+        card.layer.cornerRadius = 14;
         card.layer.maskedCorners = kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
-        card.layer.masksToBounds = YES;
     }
     [cell.contentView insertSubview:card atIndex:0];
 
-    if (indexPath.row > 1) {
-        UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(14, 0, self.tableView.bounds.size.width - 28, 0.5)];
-        separator.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.3];
-        separator.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [cell.contentView addSubview:separator];
+    if (!isLast) {
+        UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(60, H - 0.5, W - 76, 0.5)];
+        sep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.35];
+        sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:sep];
     }
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 10,
-                                                                    self.tableView.bounds.size.width - 90, 22)];
-    titleLabel.text = item[@"title"];
-    titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-    titleLabel.textColor = [UIColor labelColor];
-    titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [cell.contentView addSubview:titleLabel];
+    // 图标块
+    UIView *iconBg = [[UIView alloc] initWithFrame:CGRectMake(28, (H - 28) / 2.0, 28, 28)];
+    iconBg.backgroundColor = [self _iconColorWithName:item[@"iconColor"]];
+    iconBg.layer.cornerRadius = 7;
+    iconBg.layer.masksToBounds = YES;
+    [cell.contentView addSubview:iconBg];
 
-    UILabel *detailLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 32,
-                                                                     self.tableView.bounds.size.width - 90, 18)];
-    detailLabel.text = item[@"detail"];
-    detailLabel.font = [UIFont systemFontOfSize:11];
-    detailLabel.textColor = [UIColor secondaryLabelColor];
-    detailLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [cell.contentView addSubview:detailLabel];
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:iconBg.bounds];
+    iv.contentMode = UIViewContentModeCenter;
+    iv.tintColor = [UIColor whiteColor];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold];
+        iv.image = [UIImage systemImageNamed:item[@"icon"] withConfiguration:cfg];
+    }
+    [iconBg addSubview:iv];
 
-    UISwitch *sw = [[UISwitch alloc] init];
-    sw.transform = CGAffineTransformMakeScale(0.85, 0.85);
-    sw.onTintColor = [UIColor systemRedColor];
-    sw.on = [[NSUserDefaults standardUserDefaults] boolForKey:item[@"key"]];
-    sw.tag = (indexPath.section << 16) | (indexPath.row - 1);
-    [sw addTarget:self action:@selector(_onSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    NSString *type = item[@"type"];
+    NSString *detail = item[@"detail"];
 
-    BOOL isMaster = [item[@"isMaster"] boolValue];
-    if (!isMaster) {
-        BOOL master = XHS778Enabled();
-        sw.enabled = master;
-        cell.contentView.alpha = master ? 1.0 : 0.45;
+    if (detail) {
+        UILabel *titleLb = [[UILabel alloc] initWithFrame:CGRectMake(68, 11, W - 130, 20)];
+        titleLb.text = item[@"title"];
+        titleLb.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        titleLb.textColor = [UIColor labelColor];
+        titleLb.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:titleLb];
+
+        UILabel *subLb = [[UILabel alloc] initWithFrame:CGRectMake(68, 33, W - 130, 18)];
+        subLb.text = detail;
+        subLb.font = [UIFont systemFontOfSize:11];
+        subLb.textColor = [UIColor secondaryLabelColor];
+        subLb.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:subLb];
+    } else {
+        UILabel *titleLb = [[UILabel alloc] initWithFrame:CGRectMake(68, 0, W - 130, H)];
+        titleLb.text = item[@"title"];
+        titleLb.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        titleLb.textColor = [UIColor labelColor];
+        titleLb.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:titleLb];
     }
 
-    cell.accessoryView = sw;
+    if ([type isEqualToString:@"switch"]) {
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.transform = CGAffineTransformMakeScale(0.85, 0.85);
+        sw.onTintColor = [UIColor systemRedColor];
+        sw.on = [[NSUserDefaults standardUserDefaults] boolForKey:item[@"key"]];
+        sw.tag = (indexPath.section << 16) | indexPath.row;
+        [sw addTarget:self action:@selector(_onSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+
+        BOOL isMaster = [item[@"isMaster"] boolValue];
+        if (!isMaster) {
+            BOOL master = XHS778Enabled();
+            sw.enabled = master;
+            cell.contentView.alpha = master ? 1.0 : 0.4;
+        }
+        cell.accessoryView = sw;
+    } else if ([type isEqualToString:@"action"]) {
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        UIImageView *chev = [[UIImageView alloc] init];
+        chev.tintColor = [UIColor tertiaryLabelColor];
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightSemibold];
+            chev.image = [UIImage systemImageNamed:@"chevron.right" withConfiguration:cfg];
+        }
+        chev.frame = CGRectMake(W - 44, (H - 16) / 2.0, 12, 16);
+        chev.contentMode = UIViewContentModeScaleAspectFit;
+        chev.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        [cell.contentView addSubview:chev];
+    }
+
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.row != 0) return;
-    NSMutableDictionary *sectionData = [self.menuSections[indexPath.section] mutableCopy];
-    BOOL expanded = [sectionData[@"expanded"] boolValue];
-    sectionData[@"expanded"] = @(!expanded);
-    [self.menuSections replaceObjectAtIndex:indexPath.section withObject:sectionData];
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:indexPath.section]
-                  withRowAnimation:UITableViewRowAnimationFade];
+    NSDictionary *item = self.sections[indexPath.section][@"items"][indexPath.row];
+    NSString *action = item[@"action"];
+    if ([action isEqualToString:@"showDisclaimer"]) {
+        XHS778DisclaimerVC *dvc = [[XHS778DisclaimerVC alloc] init];
+        dvc.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        dvc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+        [self presentViewController:dvc animated:YES completion:nil];
+    }
 }
 
 - (void)_onSwitchChanged:(UISwitch *)sw {
     NSInteger section = sw.tag >> 16;
-    NSInteger subIndex = sw.tag & 0xFFFF;
-    NSDictionary *sectionData = self.menuSections[section];
-    NSDictionary *item = sectionData[@"items"][subIndex];
+    NSInteger row = sw.tag & 0xFFFF;
+    NSDictionary *item = self.sections[section][@"items"][row];
     NSString *key = item[@"key"];
     [[NSUserDefaults standardUserDefaults] setBool:sw.isOn forKey:key];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
-    // 主开关变化时刷新所有子开关启用状态
     if ([item[@"isMaster"] boolValue]) {
         [self.tableView reloadData];
     }
@@ -851,97 +853,69 @@ static void XHS778SwizzleInstanceMethod(Class cls, SEL sel, IMP newImp) {
 }
 
 
-#pragma mark - Hook 设置主页：在「隐私设置」下方注入 XHS778 入口
+#pragma mark - Hook 设置主页：在「隐私设置」section 下方插入独立 XHS778 section（仿 DYYY 样式）
 
-static char kXHS778PrivacyIndexKey;     // 缓存「隐私设置」位置 NSIndexPath
-static char kXHS778PrivacyScannedKey;   // 是否已完成扫描
+static char kXHS778PrivacySectionKey;   // 缓存「隐私设置」所在 section 索引（NSNumber）
+static char kXHS778PrivacyScannedKey;
+
+@interface XYPHSettingViewController (XHS778)
+- (UITableViewCell *)xhs778_makeEntryCell;
+- (void)xhs778_presentEntry;
+@end
+
+static long long XHS778GetPrivacySection(id self) {
+    NSNumber *n = objc_getAssociatedObject(self, &kXHS778PrivacySectionKey);
+    return n ? [n longLongValue] : -1;
+}
 
 %hook XYPHSettingViewController
 
 - (void)viewDidLoad {
     %orig;
-    objc_setAssociatedObject(self, &kXHS778PrivacyIndexKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &kXHS778PrivacySectionKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &kXHS778PrivacyScannedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
+- (long long)numberOfSectionsInTableView:(UITableView *)tableView {
     long long original = %orig;
-    NSIndexPath *privacyIp = objc_getAssociatedObject(self, &kXHS778PrivacyIndexKey);
-    if (privacyIp && privacyIp.section == section) {
-        return original + 1;
+    long long ps = XHS778GetPrivacySection(self);
+    return (ps >= 0) ? (original + 1) : original;
+}
+
+- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
+    long long ps = XHS778GetPrivacySection(self);
+    if (ps >= 0) {
+        if (section == ps + 1) return 1;                         // 我们的 section
+        if (section > ps + 1) return %orig(tableView, section - 1);
     }
-    return original;
+    return %orig;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSIndexPath *privacyIp = objc_getAssociatedObject(self, &kXHS778PrivacyIndexKey);
-    if (privacyIp && privacyIp.section == indexPath.section) {
-        if (indexPath.row == privacyIp.row + 1) {
-            // 我们插入的入口
-            static NSString *cellId = @"XHS778EntryCell";
-            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
-            if (!cell) {
-                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellId];
-            }
-            for (UIView *v in cell.contentView.subviews) {
-                if (v.tag == 7780001 || v.tag == 7780002) [v removeFromSuperview];
-            }
-
-            cell.backgroundColor = [UIColor clearColor];
-            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            cell.textLabel.text = nil;
-
-            UIImageView *icon = [[UIImageView alloc] init];
-            icon.tag = 7780001;
-            icon.contentMode = UIViewContentModeScaleAspectFit;
-            icon.tintColor = [UIColor systemRedColor];
-            if (@available(iOS 13.0, *)) {
-                icon.image = [UIImage systemImageNamed:@"face.smiling"];
-            }
-            icon.translatesAutoresizingMaskIntoConstraints = NO;
-            [cell.contentView addSubview:icon];
-
-            UILabel *titleLabel = [[UILabel alloc] init];
-            titleLabel.tag = 7780002;
-            titleLabel.text = @"XHS778";
-            titleLabel.font = [UIFont systemFontOfSize:16];
-            titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-            [cell.contentView addSubview:titleLabel];
-
-            [NSLayoutConstraint activateConstraints:@[
-                [icon.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:18],
-                [icon.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-                [icon.widthAnchor constraintEqualToConstant:24],
-                [icon.heightAnchor constraintEqualToConstant:24],
-
-                [titleLabel.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:14],
-                [titleLabel.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-            ]];
-
-            return cell;
+    long long ps = XHS778GetPrivacySection(self);
+    if (ps >= 0) {
+        if (indexPath.section == ps + 1) {
+            return [self xhs778_makeEntryCell];
         }
-        if (indexPath.row > privacyIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
+        if (indexPath.section > ps + 1) {
+            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
             return %orig(tableView, origIp);
         }
     }
 
     UITableViewCell *cell = %orig;
 
-    // 第一次扫描各 cell 内容找出「隐私设置」位置
+    // 扫描隐私设置 section
     NSNumber *scanned = objc_getAssociatedObject(self, &kXHS778PrivacyScannedKey);
-    if (!scanned.boolValue && !privacyIp) {
+    if (!scanned.boolValue && ps < 0) {
         UILabel *l = XHS778FindLabel(cell.contentView);
         if (l.text.length && [l.text isEqualToString:@"隐私设置"]) {
-            objc_setAssociatedObject(self, &kXHS778PrivacyIndexKey, indexPath, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(self, &kXHS778PrivacySectionKey, @(indexPath.section), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(self, &kXHS778PrivacyScannedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            __weak typeof(self) weakSelf = self;
+            __weak typeof(self) ws = self;
             dispatch_async(dispatch_get_main_queue(), ^{
-                __strong typeof(weakSelf) strongSelf = weakSelf;
-                if (strongSelf && strongSelf.tableView) {
-                    [strongSelf.tableView reloadData];
-                }
+                __strong typeof(ws) ss = ws;
+                if (ss && ss.tableView) [ss.tableView reloadData];
             });
         }
     }
@@ -949,36 +923,15 @@ static char kXHS778PrivacyScannedKey;   // 是否已完成扫描
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSIndexPath *privacyIp = objc_getAssociatedObject(self, &kXHS778PrivacyIndexKey);
-    if (privacyIp && privacyIp.section == indexPath.section) {
-        if (indexPath.row == privacyIp.row + 1) {
+    long long ps = XHS778GetPrivacySection(self);
+    if (ps >= 0) {
+        if (indexPath.section == ps + 1) {
             [tableView deselectRowAtIndexPath:indexPath animated:YES];
-
-            __weak typeof(self) weakSelf = self;
-            void (^presentSettings)(void) = ^{
-                __strong typeof(weakSelf) strongSelf = weakSelf;
-                if (!strongSelf) return;
-                XHS778SettingsVC *vc = [[XHS778SettingsVC alloc] init];
-                vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
-                vc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-                [strongSelf presentViewController:vc animated:YES completion:nil];
-            };
-
-            if (XHS778DisclaimerAccepted()) {
-                presentSettings();
-            } else {
-                XHS778DisclaimerVC *dvc = [[XHS778DisclaimerVC alloc] init];
-                dvc.modalPresentationStyle = UIModalPresentationOverFullScreen;
-                dvc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-                dvc.onAccept = ^{
-                    presentSettings();
-                };
-                [self presentViewController:dvc animated:YES completion:nil];
-            }
+            [self xhs778_presentEntry];
             return;
         }
-        if (indexPath.row > privacyIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
+        if (indexPath.section > ps + 1) {
+            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
             %orig(tableView, origIp);
             return;
         }
@@ -987,15 +940,15 @@ static char kXHS778PrivacyScannedKey;   // 是否已完成扫描
 }
 
 - (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSIndexPath *privacyIp = objc_getAssociatedObject(self, &kXHS778PrivacyIndexKey);
-    if (privacyIp && privacyIp.section == indexPath.section) {
-        if (indexPath.row == privacyIp.row + 1) {
-            // 与原「隐私设置」行同高，避免视觉跳变
-            NSIndexPath *origPrivacy = [NSIndexPath indexPathForRow:privacyIp.row inSection:privacyIp.section];
-            return %orig(tableView, origPrivacy);
+    long long ps = XHS778GetPrivacySection(self);
+    if (ps >= 0) {
+        if (indexPath.section == ps + 1) {
+            // 复用原「隐私设置」行高，保持视觉一致
+            NSIndexPath *probe = [NSIndexPath indexPathForRow:0 inSection:ps];
+            return %orig(tableView, probe);
         }
-        if (indexPath.row > privacyIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
+        if (indexPath.section > ps + 1) {
+            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
             return %orig(tableView, origIp);
         }
     }
@@ -1003,18 +956,87 @@ static char kXHS778PrivacyScannedKey;   // 是否已完成扫描
 }
 
 - (double)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSIndexPath *privacyIp = objc_getAssociatedObject(self, &kXHS778PrivacyIndexKey);
-    if (privacyIp && privacyIp.section == indexPath.section) {
-        if (indexPath.row == privacyIp.row + 1) {
-            NSIndexPath *origPrivacy = [NSIndexPath indexPathForRow:privacyIp.row inSection:privacyIp.section];
-            return %orig(tableView, origPrivacy);
+    long long ps = XHS778GetPrivacySection(self);
+    if (ps >= 0) {
+        if (indexPath.section == ps + 1) {
+            NSIndexPath *probe = [NSIndexPath indexPathForRow:0 inSection:ps];
+            return %orig(tableView, probe);
         }
-        if (indexPath.row > privacyIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
+        if (indexPath.section > ps + 1) {
+            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
             return %orig(tableView, origIp);
         }
     }
     return %orig;
+}
+
+%new
+- (UITableViewCell *)xhs778_makeEntryCell {
+    static NSString *cellId = @"XHS778EntryCell";
+    UITableViewCell *cell = [self.tableView dequeueReusableCellWithIdentifier:cellId];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellId];
+    }
+    for (UIView *v in cell.contentView.subviews) {
+        if (v.tag == 7780001 || v.tag == 7780002) [v removeFromSuperview];
+    }
+
+    // 不主动设置 backgroundColor，让它自动跟随系统的浅/深色 grouped style
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.textLabel.text = nil;
+
+    UIImageView *icon = [[UIImageView alloc] init];
+    icon.tag = 7780001;
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.tintColor = [UIColor labelColor]; // 黑白图标，自动适配深浅色
+    if (@available(iOS 13.0, *)) {
+        icon.image = [UIImage systemImageNamed:@"face.smiling"];
+    }
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    [cell.contentView addSubview:icon];
+
+    UILabel *titleLabel = [[UILabel alloc] init];
+    titleLabel.tag = 7780002;
+    titleLabel.text = @"XHS778";
+    titleLabel.font = [UIFont systemFontOfSize:16];
+    titleLabel.textColor = [UIColor labelColor];
+    titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [cell.contentView addSubview:titleLabel];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [icon.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:18],
+        [icon.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [icon.widthAnchor constraintEqualToConstant:22],
+        [icon.heightAnchor constraintEqualToConstant:22],
+
+        [titleLabel.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:14],
+        [titleLabel.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+    ]];
+
+    return cell;
+}
+
+%new
+- (void)xhs778_presentEntry {
+    __weak typeof(self) ws = self;
+    void (^presentSettings)(void) = ^{
+        __strong typeof(ws) ss = ws;
+        if (!ss) return;
+        XHS778SettingsVC *vc = [[XHS778SettingsVC alloc] init];
+        vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        vc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+        [ss presentViewController:vc animated:YES completion:nil];
+    };
+    if (XHS778DisclaimerAccepted()) {
+        presentSettings();
+    } else {
+        XHS778DisclaimerVC *dvc = [[XHS778DisclaimerVC alloc] init];
+        dvc.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        dvc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+        dvc.onAccept = ^{ presentSettings(); };
+        [self presentViewController:dvc animated:YES completion:nil];
+    }
 }
 
 %end
@@ -1205,9 +1227,10 @@ static char kXHS778FeedbackScannedKey;
 %end
 
 
-#pragma mark - 表情详情页：MemePreviewPageController 添加「保存」按钮
+#pragma mark - 表情详情页：MemePreviewPageController 在「添加表情」下方加同样胶囊「保存表情」按钮
 
 static char kXHS778PreviewSaveButtonInjectedKey;
+static const NSInteger kXHS778PreviewSaveButtonTag = 778303;
 
 @interface XHS778PreviewBtnTarget : NSObject
 + (instancetype)sharedTarget;
@@ -1222,6 +1245,7 @@ static char kXHS778PreviewSaveButtonInjectedKey;
     return t;
 }
 - (void)onPreviewSavePressed:(UIButton *)sender {
+    // 从按钮一路向上找到 controller 的 view，递归找 emoji image view
     UIView *v = sender.superview;
     while (v && ![v.nextResponder isKindOfClass:[UIViewController class]]) v = v.superview;
     UIView *root = v ?: sender.superview;
@@ -1229,13 +1253,14 @@ static char kXHS778PreviewSaveButtonInjectedKey;
     if (iv) {
         XHS778SaveEmojiFromImageView(iv);
     } else {
-        // 兜底：找任何 UIImageView
         UIImageView *anyIv = nil;
         NSMutableArray *q = [NSMutableArray arrayWithObject:root];
         while (q.count > 0) {
             UIView *cur = q.firstObject;
             [q removeObjectAtIndex:0];
-            if ([cur isKindOfClass:[UIImageView class]]) { anyIv = (UIImageView *)cur; break; }
+            if ([cur isKindOfClass:[UIImageView class]] && ((UIImageView *)cur).image) {
+                anyIv = (UIImageView *)cur; break;
+            }
             [q addObjectsFromArray:cur.subviews];
         }
         if (anyIv && anyIv.image) {
@@ -1247,32 +1272,50 @@ static char kXHS778PreviewSaveButtonInjectedKey;
 }
 @end
 
+// 递归查找 currentTitle 等于指定文字的 UIButton
+static UIButton *XHS778FindButtonWithTitle(UIView *root, NSString *title) {
+    if (!root) return nil;
+    if ([root isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)root;
+        if ([b.currentTitle isEqualToString:title]) return b;
+    }
+    for (UIView *sub in root.subviews) {
+        UIButton *b = XHS778FindButtonWithTitle(sub, title);
+        if (b) return b;
+    }
+    return nil;
+}
+
 static void XHS778AddPreviewSaveButton(UIViewController *vc) {
     if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
     if (!vc || !vc.viewLoaded) return;
-    if (objc_getAssociatedObject(vc, &kXHS778PreviewSaveButtonInjectedKey)) return;
     UIView *root = vc.view;
     if (!root || root.bounds.size.width <= 0) return;
+    if ([root viewWithTag:kXHS778PreviewSaveButtonTag]) return;
 
-    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    CGFloat size = 44;
-    CGFloat topInset = 8;
-    if (@available(iOS 11.0, *)) {
-        topInset = root.safeAreaInsets.top + 8;
-    }
-    saveBtn.frame = CGRectMake(root.bounds.size.width - size - 16, topInset, size, size);
-    saveBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    saveBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
-    saveBtn.layer.cornerRadius = size / 2.0;
-    saveBtn.tintColor = [UIColor whiteColor];
-    if (@available(iOS 13.0, *)) {
-        UIImage *img = [UIImage systemImageNamed:@"square.and.arrow.down"];
-        [saveBtn setImage:img forState:UIControlStateNormal];
-    }
+    // 找原「添加表情」胶囊按钮（红色）
+    UIButton *addBtn = XHS778FindButtonWithTitle(root, @"添加表情");
+    if (!addBtn) return;
+    UIView *parent = addBtn.superview;
+    if (!parent) return;
+
+    // 复制完全相同的尺寸/颜色/字体，仅文字与回调不同
+    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    saveBtn.tag = kXHS778PreviewSaveButtonTag;
+    CGRect af = addBtn.frame;
+    saveBtn.frame = CGRectMake(af.origin.x, CGRectGetMaxY(af) + 12, af.size.width, af.size.height);
+    saveBtn.autoresizingMask = addBtn.autoresizingMask;
+    saveBtn.backgroundColor = addBtn.backgroundColor ?: [UIColor systemRedColor];
+    saveBtn.layer.cornerRadius = (addBtn.layer.cornerRadius > 0) ? addBtn.layer.cornerRadius : (af.size.height / 2.0);
+    saveBtn.layer.masksToBounds = YES;
+    [saveBtn setTitle:@"保存表情" forState:UIControlStateNormal];
+    UIColor *textColor = [addBtn titleColorForState:UIControlStateNormal] ?: [UIColor whiteColor];
+    [saveBtn setTitleColor:textColor forState:UIControlStateNormal];
+    saveBtn.titleLabel.font = addBtn.titleLabel.font ?: [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     [saveBtn addTarget:[XHS778PreviewBtnTarget sharedTarget]
                 action:@selector(onPreviewSavePressed:)
       forControlEvents:UIControlEventTouchUpInside];
-    [root addSubview:saveBtn];
+    [parent addSubview:saveBtn];
 
     objc_setAssociatedObject(vc, &kXHS778PreviewSaveButtonInjectedKey, saveBtn, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -1295,20 +1338,25 @@ static const NSInteger kXHS778MenuDownloadButtonTag = 778201;
     UIButton *btn = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *container = btn.superview;
-        if (!container) return; // superview 还没准备好，等下一次 setTitle: 再尝试
-        if ([container viewWithTag:kXHS778MenuDownloadButtonTag]) return; // 已注入
+        if (!container) return;
+        if ([container viewWithTag:kXHS778MenuDownloadButtonTag]) return;
 
-        // 原按钮 frame=(0,128,128,40)，container 宽 128，缩半为下载按钮腾空间
-        CGRect btnFrame = btn.frame;
-        CGFloat newWidth = btnFrame.size.width / 2.0;
-        btn.frame = CGRectMake(btnFrame.origin.x, btnFrame.origin.y, newWidth, btnFrame.size.height);
-
-        UIButton *dlBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        // 不再修改原按钮 frame；在 container 右上角放一个圆形小按钮（28pt），不遮挡文字与下方箭头
+        CGFloat size = 28;
+        CGFloat margin = 6;
+        UIButton *dlBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         dlBtn.tag = kXHS778MenuDownloadButtonTag;
-        dlBtn.frame = CGRectMake(btnFrame.origin.x + newWidth, btnFrame.origin.y, newWidth, btnFrame.size.height);
-        dlBtn.tintColor = btn.tintColor;
+        CGFloat cw = container.bounds.size.width;
+        if (cw < size + margin * 2) cw = size + margin * 2;
+        dlBtn.frame = CGRectMake(cw - size - margin, margin, size, size);
+        dlBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+        dlBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.62];
+        dlBtn.layer.cornerRadius = size / 2.0;
+        dlBtn.layer.masksToBounds = YES;
+        dlBtn.tintColor = [UIColor whiteColor];
         if (@available(iOS 13.0, *)) {
-            UIImage *img = [UIImage systemImageNamed:@"square.and.arrow.down"];
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold];
+            UIImage *img = [UIImage systemImageNamed:@"arrow.down.to.line" withConfiguration:cfg];
             [dlBtn setImage:img forState:UIControlStateNormal];
         }
         [dlBtn addTarget:btn action:@selector(xhs778_menuDownloadTapped:) forControlEvents:UIControlEventTouchUpInside];
