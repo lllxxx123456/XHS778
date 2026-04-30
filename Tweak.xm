@@ -836,6 +836,14 @@ static void XHS778RecordCommentTouches(UIView *commentView) {
 static char kXHS778SavePanelInjectedKey;
 static const NSInteger kXHS778SaveCellTag = 778002;
 
+// 提前声明，避免 hook 块内互相调用时编译器找不到 selector
+@interface XYCommentFeedbackPanelController (XHS778)
+- (void)xhs778_injectSaveButtonIfNeeded;
+- (void)xhs778_onSavePressed;
+- (void)xhs778_onSaveHighlight:(UIControl *)sender;
+- (void)xhs778_onSaveUnhighlight:(UIControl *)sender;
+@end
+
 %hook XYCommentFeedbackPanelController
 
 - (void)viewDidLoad {
