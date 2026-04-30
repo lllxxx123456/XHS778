@@ -3,7 +3,7 @@ Name: XHS778
 Depends: mobilesubstrate
 Version: 1.0-1
 Architecture: iphoneos-arm64
-Description: 小红书表情包保存助手 - 长按评论一键保存表情(支持 GIF)
-Author: lllxxx123456
-Maintainer: lllxxx123456
+Description: 小红书表情包保存助手
+Author: jijiang778
+Maintainer: jijiang778
 Section: Tweaks

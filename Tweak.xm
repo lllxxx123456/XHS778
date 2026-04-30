@@ -10,6 +10,7 @@ static NSString * const kXHS778EnabledKey            = @"XHS778_Enabled";
 static NSString * const kXHS778CommentSaveEnabledKey = @"XHS778_CommentSaveEnabled";
 static NSString * const kXHS778PreviewSaveEnabledKey = @"XHS778_PreviewSaveEnabled";
 static NSString * const kXHS778SenderMenuSaveKey     = @"XHS778_SenderMenuSaveEnabled";
+static NSString * const kXHS778DisclaimerAcceptedKey = @"XHS778_DisclaimerAccepted";
 
 static BOOL XHS778Enabled(void) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778EnabledKey];
@@ -22,6 +23,23 @@ static BOOL XHS778PreviewSaveEnabled(void) {
 }
 static BOOL XHS778SenderMenuSaveEnabled(void) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778SenderMenuSaveKey];
+}
+static BOOL XHS778DisclaimerAccepted(void) {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778DisclaimerAcceptedKey];
+}
+static void XHS778SetDisclaimerAccepted(void) {
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kXHS778DisclaimerAcceptedKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+static void XHS778TerminateApp(void) {
+    // 触发应用退出（用户拒绝免责声明时调用）
+    UIApplication *app = [UIApplication sharedApplication];
+    SEL sel = NSSelectorFromString(@"terminateWithSuccess");
+    if ([app respondsToSelector:sel]) {
+        ((void (*)(id, SEL))objc_msgSend)(app, sel);
+    } else {
+        exit(0);
+    }
 }
 
 #pragma mark - 全局状态
@@ -211,6 +229,166 @@ static void XHS778SaveImageObject(UIImage *image) {
     }
 }
 
+#pragma mark - 首次使用风险提示 VC（3 秒倒计时 + 接受/退出）
+
+@interface XHS778DisclaimerVC : UIViewController
+@property (nonatomic, strong) UIView *card;
+@property (nonatomic, strong) UIVisualEffectView *blurView;
+@property (nonatomic, strong) UIButton *acceptButton;
+@property (nonatomic, strong) UIButton *rejectButton;
+@property (nonatomic, assign) NSInteger countdown;
+@property (nonatomic, strong) NSTimer *timer;
+@property (nonatomic, copy) void (^onAccept)(void);
+@end
+
+@implementation XHS778DisclaimerVC
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
+    self.countdown = 3;
+
+    CGFloat screenWidth = CGRectGetWidth([UIScreen mainScreen].bounds);
+    CGFloat screenHeight = CGRectGetHeight([UIScreen mainScreen].bounds);
+    CGFloat cardWidth = MIN(screenWidth - 56, 360);
+    CGFloat cardHeight = 360;
+
+    self.card = [[UIView alloc] initWithFrame:CGRectMake((screenWidth - cardWidth) / 2.0,
+                                                         (screenHeight - cardHeight) / 2.0,
+                                                         cardWidth, cardHeight)];
+    self.card.layer.cornerRadius = 18;
+    self.card.layer.masksToBounds = YES;
+    [self.view addSubview:self.card];
+
+    self.blurView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
+    self.blurView.frame = self.card.bounds;
+    self.blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.card addSubview:self.blurView];
+
+    // 顶部红色警示图标
+    UIImageView *warnIcon = [[UIImageView alloc] init];
+    warnIcon.contentMode = UIViewContentModeScaleAspectFit;
+    warnIcon.tintColor = [UIColor systemRedColor];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:36 weight:UIImageSymbolWeightSemibold];
+        warnIcon.image = [UIImage systemImageNamed:@"exclamationmark.triangle.fill" withConfiguration:cfg];
+    }
+    warnIcon.frame = CGRectMake((cardWidth - 50) / 2.0, 22, 50, 44);
+    [self.blurView.contentView addSubview:warnIcon];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 70, cardWidth, 28)];
+    titleLabel.text = @"使用须知";
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
+    titleLabel.textColor = [UIColor labelColor];
+    [self.blurView.contentView addSubview:titleLabel];
+
+    // 风险提示文本
+    UILabel *contentLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 108, cardWidth - 40, 170)];
+    contentLabel.numberOfLines = 0;
+    contentLabel.font = [UIFont systemFontOfSize:13];
+    contentLabel.textColor = [UIColor labelColor];
+    NSString *raw = @"本插件仅用于学习交流，请尊重原作者的版权。\n\n"
+                    @"保存的表情仅供个人使用，请勿用于商业用途或二次传播。\n\n"
+                    @"使用本插件可能违反小红书用户协议，由此引发的账号风险请自行承担。";
+    NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+    ps.lineSpacing = 3;
+    ps.paragraphSpacing = 4;
+    contentLabel.attributedText = [[NSAttributedString alloc] initWithString:raw attributes:@{
+        NSFontAttributeName: contentLabel.font,
+        NSForegroundColorAttributeName: contentLabel.textColor,
+        NSParagraphStyleAttributeName: ps,
+    }];
+    [self.blurView.contentView addSubview:contentLabel];
+
+    // 底部分隔线
+    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, cardHeight - 56, cardWidth, 0.5)];
+    sep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.4];
+    [self.blurView.contentView addSubview:sep];
+
+    // 左：我不用了
+    self.rejectButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.rejectButton.frame = CGRectMake(0, cardHeight - 55, cardWidth / 2.0, 55);
+    [self.rejectButton setTitle:@"我不用了" forState:UIControlStateNormal];
+    [self.rejectButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    self.rejectButton.titleLabel.font = [UIFont systemFontOfSize:15];
+    [self.rejectButton addTarget:self action:@selector(_onReject) forControlEvents:UIControlEventTouchUpInside];
+    [self.blurView.contentView addSubview:self.rejectButton];
+
+    // 中间竖线
+    UIView *vSep = [[UIView alloc] initWithFrame:CGRectMake(cardWidth / 2.0, cardHeight - 55, 0.5, 55)];
+    vSep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.4];
+    [self.blurView.contentView addSubview:vSep];
+
+    // 右：确定（倒计时 3 秒后启用）
+    self.acceptButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.acceptButton.frame = CGRectMake(cardWidth / 2.0, cardHeight - 55, cardWidth / 2.0, 55);
+    [self.acceptButton setTitle:@"确定 (3)" forState:UIControlStateNormal];
+    [self.acceptButton setTitleColor:[UIColor tertiaryLabelColor] forState:UIControlStateDisabled];
+    [self.acceptButton setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
+    self.acceptButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    self.acceptButton.enabled = NO;
+    [self.acceptButton addTarget:self action:@selector(_onAccept) forControlEvents:UIControlEventTouchUpInside];
+    [self.blurView.contentView addSubview:self.acceptButton];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self _startCountdown];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self _stopCountdown];
+}
+
+- (void)_startCountdown {
+    [self _stopCountdown];
+    self.countdown = 3;
+    [self _refreshAcceptTitle];
+    self.timer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(_onTick) userInfo:nil repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:self.timer forMode:NSRunLoopCommonModes];
+}
+
+- (void)_stopCountdown {
+    if (self.timer) {
+        [self.timer invalidate];
+        self.timer = nil;
+    }
+}
+
+- (void)_onTick {
+    self.countdown -= 1;
+    if (self.countdown <= 0) {
+        [self _stopCountdown];
+        self.acceptButton.enabled = YES;
+        [self.acceptButton setTitle:@"确定并继续使用" forState:UIControlStateNormal];
+    } else {
+        [self _refreshAcceptTitle];
+    }
+}
+
+- (void)_refreshAcceptTitle {
+    [self.acceptButton setTitle:[NSString stringWithFormat:@"确定 (%ld)", (long)self.countdown] forState:UIControlStateNormal];
+}
+
+- (void)_onAccept {
+    XHS778SetDisclaimerAccepted();
+    void (^cb)(void) = self.onAccept;
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (cb) cb();
+    }];
+}
+
+- (void)_onReject {
+    [self dismissViewControllerAnimated:YES completion:^{
+        XHS778TerminateApp();
+    }];
+}
+
+@end
+
+
 #pragma mark - KCMenu 风格设置 VC
 
 static const CGFloat kXHS778CardCornerRadius = 18.0;
@@ -264,6 +442,22 @@ static const CGFloat kXHS778FooterHeight = 56.0;
     UIView *topBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(self.settingsCard.bounds), 48)];
     [self.blurView.contentView addSubview:topBar];
 
+    // 左上角 X 按钮：退出小红书应用
+    UIButton *exitButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    exitButton.frame = CGRectMake(8, 6, 36, 36);
+    exitButton.autoresizingMask = UIViewAutoresizingFlexibleRightMargin;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+        UIImage *img = [UIImage systemImageNamed:@"xmark.circle.fill" withConfiguration:cfg];
+        [exitButton setImage:img forState:UIControlStateNormal];
+    } else {
+        [exitButton setTitle:@"✕" forState:UIControlStateNormal];
+        exitButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    }
+    exitButton.tintColor = [UIColor secondaryLabelColor];
+    [exitButton addTarget:self action:@selector(_onExitApp) forControlEvents:UIControlEventTouchUpInside];
+    [topBar addSubview:exitButton];
+
     UILabel *title = [[UILabel alloc] initWithFrame:topBar.bounds];
     title.text = @"XHS778";
     title.textAlignment = NSTextAlignmentCenter;
@@ -285,6 +479,17 @@ static const CGFloat kXHS778FooterHeight = 56.0;
                                                                  CGRectGetWidth(self.settingsCard.bounds), 0.5)];
     separator.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.4];
     [self.blurView.contentView addSubview:separator];
+}
+
+- (void)_onExitApp {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"退出小红书"
+                                                                message:@"确定要退出小红书吗？"
+                                                         preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"退出" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *_) {
+        XHS778TerminateApp();
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
 }
 
 - (void)_buildContentArea {
@@ -748,10 +953,28 @@ static char kXHS778PrivacyScannedKey;   // 是否已完成扫描
     if (privacyIp && privacyIp.section == indexPath.section) {
         if (indexPath.row == privacyIp.row + 1) {
             [tableView deselectRowAtIndexPath:indexPath animated:YES];
-            XHS778SettingsVC *vc = [[XHS778SettingsVC alloc] init];
-            vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
-            vc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-            [self presentViewController:vc animated:YES completion:nil];
+
+            __weak typeof(self) weakSelf = self;
+            void (^presentSettings)(void) = ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (!strongSelf) return;
+                XHS778SettingsVC *vc = [[XHS778SettingsVC alloc] init];
+                vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
+                vc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+                [strongSelf presentViewController:vc animated:YES completion:nil];
+            };
+
+            if (XHS778DisclaimerAccepted()) {
+                presentSettings();
+            } else {
+                XHS778DisclaimerVC *dvc = [[XHS778DisclaimerVC alloc] init];
+                dvc.modalPresentationStyle = UIModalPresentationOverFullScreen;
+                dvc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+                dvc.onAccept = ^{
+                    presentSettings();
+                };
+                [self presentViewController:dvc animated:YES completion:nil];
+            }
             return;
         }
         if (indexPath.row > privacyIp.row + 1) {
@@ -818,8 +1041,8 @@ static char kXHS778FeedbackScannedKey;
 - (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
     long long original = %orig;
     if (!XHS778Enabled() || !XHS778CommentSaveEnabled()) return original;
-    if (!gXHS778LastLongPressedEmojiView) return original;
 
+    // 仅当原 panel 中已扫描到「添加表情」项（说明评论是表情包）时才插入
     NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
     if (addIp && addIp.section == section) {
         return original + 1;
@@ -828,7 +1051,7 @@ static char kXHS778FeedbackScannedKey;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled() && (gXHS778LastLongPressedEmojiView != nil);
+    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
     NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
 
     if (active && addIp && addIp.section == indexPath.section) {
@@ -843,11 +1066,11 @@ static char kXHS778FeedbackScannedKey;
 
     UITableViewCell *cell = %orig;
 
-    // 扫描「添加表情」位置
+    // 扫描「添加表情」位置（出现该项即表示评论是表情包）
     NSNumber *scanned = objc_getAssociatedObject(self, &kXHS778FeedbackScannedKey);
     if (active && !scanned.boolValue && !addIp) {
         UILabel *l = XHS778FindLabel(cell.contentView);
-        if (l.text.length && [l.text containsString:@"添加表情"]) {
+        if (l.text.length && [l.text isEqualToString:@"添加表情"]) {
             objc_setAssociatedObject(self, &kXHS778FeedbackAddIndexKey, indexPath, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(self, &kXHS778FeedbackScannedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             __weak typeof(self) weakSelf = self;
@@ -863,7 +1086,7 @@ static char kXHS778FeedbackScannedKey;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled() && (gXHS778LastLongPressedEmojiView != nil);
+    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
     NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
 
     if (active && addIp && addIp.section == indexPath.section) {
@@ -882,7 +1105,7 @@ static char kXHS778FeedbackScannedKey;
 }
 
 - (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled() && (gXHS778LastLongPressedEmojiView != nil);
+    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
     NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
 
     if (active && addIp && addIp.section == indexPath.section) {
@@ -899,7 +1122,7 @@ static char kXHS778FeedbackScannedKey;
 }
 
 - (double)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled() && (gXHS778LastLongPressedEmojiView != nil);
+    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
     NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
 
     if (active && addIp && addIp.section == indexPath.section) {
