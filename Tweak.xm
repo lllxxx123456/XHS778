@@ -1042,65 +1042,63 @@ static long long XHS778GetPrivacySection(id self) {
 %end
 
 
-#pragma mark - Hook 长按评论菜单：在「添加表情」下方插入「保存表情」
+#pragma mark - Hook 长按评论菜单：把「保存表情」放到独立的置顶 section（section 0）
 
-static char kXHS778FeedbackAddIndexKey;
-static char kXHS778FeedbackScannedKey;
+static char kXHS778FeedbackHasEmojiKey;   // BOOL：扫描后是否确认评论是表情包
+static char kXHS778FeedbackScannedKey;    // BOOL：是否完成首轮扫描
 
 @interface XYCommentFeedbackPanelController (XHS778)
 - (void)xhs778_onSavePressed;
 - (UITableViewCell *)xhs778_makeSaveCell;
 @end
 
+static BOOL XHS778FeedbackActive(id self) {
+    if (!XHS778Enabled() || !XHS778CommentSaveEnabled()) return NO;
+    return [objc_getAssociatedObject(self, &kXHS778FeedbackHasEmojiKey) boolValue];
+}
+
 %hook XYCommentFeedbackPanelController
 
 - (void)viewDidLoad {
     %orig;
-    objc_setAssociatedObject(self, &kXHS778FeedbackAddIndexKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &kXHS778FeedbackHasEmojiKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &kXHS778FeedbackScannedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
+- (long long)numberOfSectionsInTableView:(UITableView *)tableView {
     long long original = %orig;
-    if (!XHS778Enabled() || !XHS778CommentSaveEnabled()) return original;
-
-    // 仅当原 panel 中已扫描到「添加表情」项（说明评论是表情包）时才插入
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
-    if (addIp && addIp.section == section) {
-        return original + 1;
-    }
+    if (XHS778FeedbackActive(self)) return original + 1;
     return original;
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
+- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
+    if (XHS778FeedbackActive(self)) {
+        if (section == 0) return 1;                         // 置顶的「保存表情」
+        return %orig(tableView, section - 1);               // 其余下移
+    }
+    return %orig;
+}
 
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
-            return [self xhs778_makeSaveCell];
-        }
-        if (indexPath.row > addIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
-            return %orig(tableView, origIp);
-        }
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (XHS778FeedbackActive(self)) {
+        if (indexPath.section == 0) return [self xhs778_makeSaveCell];
+        NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
+        return %orig(tableView, origIp);
     }
 
     UITableViewCell *cell = %orig;
 
-    // 扫描「添加表情」位置（出现该项即表示评论是表情包）
+    // 扫描每个 cell，遇到「添加表情」即视为表情包评论
     NSNumber *scanned = objc_getAssociatedObject(self, &kXHS778FeedbackScannedKey);
-    if (active && !scanned.boolValue && !addIp) {
+    if (!scanned.boolValue && XHS778Enabled() && XHS778CommentSaveEnabled()) {
         UILabel *l = XHS778FindLabel(cell.contentView);
         if (l.text.length && [l.text isEqualToString:@"添加表情"]) {
-            objc_setAssociatedObject(self, &kXHS778FeedbackAddIndexKey, indexPath, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(self, &kXHS778FeedbackHasEmojiKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(self, &kXHS778FeedbackScannedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            __weak typeof(self) weakSelf = self;
+            __weak typeof(self) ws = self;
             dispatch_async(dispatch_get_main_queue(), ^{
-                __strong typeof(weakSelf) strongSelf = weakSelf;
-                if (strongSelf && strongSelf.tableView) {
-                    [strongSelf.tableView reloadData];
-                }
+                __strong typeof(ws) ss = ws;
+                if (ss && ss.tableView) [ss.tableView reloadData];
             });
         }
     }
@@ -1108,54 +1106,40 @@ static char kXHS778FeedbackScannedKey;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
-
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
+    if (XHS778FeedbackActive(self)) {
+        if (indexPath.section == 0) {
             [tableView deselectRowAtIndexPath:indexPath animated:YES];
             [self xhs778_onSavePressed];
             return;
         }
-        if (indexPath.row > addIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
-            %orig(tableView, origIp);
-            return;
-        }
+        NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
+        %orig(tableView, origIp);
+        return;
     }
     %orig;
 }
 
 - (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
-
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
-            NSIndexPath *origAdd = [NSIndexPath indexPathForRow:addIp.row inSection:addIp.section];
-            return %orig(tableView, origAdd);
+    if (XHS778FeedbackActive(self)) {
+        if (indexPath.section == 0) {
+            // 行高与原 section 0 第 0 行一致
+            NSIndexPath *probe = [NSIndexPath indexPathForRow:0 inSection:0];
+            return %orig(tableView, probe);
         }
-        if (indexPath.row > addIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
-            return %orig(tableView, origIp);
-        }
+        NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
+        return %orig(tableView, origIp);
     }
     return %orig;
 }
 
 - (double)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
-
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
-            NSIndexPath *origAdd = [NSIndexPath indexPathForRow:addIp.row inSection:addIp.section];
-            return %orig(tableView, origAdd);
+    if (XHS778FeedbackActive(self)) {
+        if (indexPath.section == 0) {
+            NSIndexPath *probe = [NSIndexPath indexPathForRow:0 inSection:0];
+            return %orig(tableView, probe);
         }
-        if (indexPath.row > addIp.row + 1) {
-            NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
-            return %orig(tableView, origIp);
-        }
+        NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
+        return %orig(tableView, origIp);
     }
     return %orig;
 }
@@ -1336,31 +1320,31 @@ static const NSInteger kXHS778MenuDownloadButtonTag = 778201;
     if (![title isEqualToString:@"删除表情"] && ![title isEqualToString:@"添加到表情"]) return;
 
     UIButton *btn = self;
+    NSString *originalTitle = [title copy];
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *container = btn.superview;
         if (!container) return;
         if ([container viewWithTag:kXHS778MenuDownloadButtonTag]) return;
 
-        // 不再修改原按钮 frame；在 container 右上角放一个圆形小按钮（28pt），不遮挡文字与下方箭头
-        CGFloat size = 28;
-        CGFloat margin = 6;
-        UIButton *dlBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        dlBtn.tag = kXHS778MenuDownloadButtonTag;
-        CGFloat cw = container.bounds.size.width;
-        if (cw < size + margin * 2) cw = size + margin * 2;
-        dlBtn.frame = CGRectMake(cw - size - margin, margin, size, size);
-        dlBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
-        dlBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.62];
-        dlBtn.layer.cornerRadius = size / 2.0;
-        dlBtn.layer.masksToBounds = YES;
-        dlBtn.tintColor = [UIColor whiteColor];
-        if (@available(iOS 13.0, *)) {
-            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold];
-            UIImage *img = [UIImage systemImageNamed:@"arrow.down.to.line" withConfiguration:cfg];
-            [dlBtn setImage:img forState:UIControlStateNormal];
-        }
-        [dlBtn addTarget:btn action:@selector(xhs778_menuDownloadTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [container addSubview:dlBtn];
+        // 把原按钮（0,128,128,40）一分为二：左半保留为「删除」/「添加」，右半新增「保存」
+        CGRect oldFrame = btn.frame;
+        CGFloat halfW = oldFrame.size.width / 2.0;
+        btn.frame = CGRectMake(oldFrame.origin.x, oldFrame.origin.y, halfW, oldFrame.size.height);
+
+        NSString *shortTitle = [originalTitle isEqualToString:@"删除表情"] ? @"删除" : @"添加";
+        [btn setTitle:shortTitle forState:UIControlStateNormal];
+
+        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        saveBtn.tag = kXHS778MenuDownloadButtonTag;
+        saveBtn.frame = CGRectMake(oldFrame.origin.x + halfW, oldFrame.origin.y, halfW, oldFrame.size.height);
+        [saveBtn setTitle:@"保存" forState:UIControlStateNormal];
+        saveBtn.titleLabel.font = btn.titleLabel.font ?: [UIFont systemFontOfSize:14];
+        saveBtn.tintColor = btn.tintColor;
+        UIColor *textColor = [btn titleColorForState:UIControlStateNormal];
+        if (textColor) [saveBtn setTitleColor:textColor forState:UIControlStateNormal];
+        saveBtn.backgroundColor = btn.backgroundColor;
+        [saveBtn addTarget:btn action:@selector(xhs778_menuDownloadTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [container addSubview:saveBtn];
     });
 }
 
