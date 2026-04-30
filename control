@@ -1,10 +1,9 @@
-Package: com.lllxxx.xhs778
+Package: com.jijiang778.xhs778
 Name: XHS778
 Depends: mobilesubstrate
-Version: 1.0.0
-Architecture: iphoneos-arm
+Version: 1.0-1
+Architecture: iphoneos-arm64
 Description: 小红书表情包保存助手 - 长按评论一键保存表情(支持 GIF)
 Author: lllxxx123456
 Maintainer: lllxxx123456
 Section: Tweaks
-Homepage: https://github.com/lllxxx123456/XHS778
