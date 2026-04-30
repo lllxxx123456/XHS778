@@ -890,6 +890,8 @@ static const NSInteger kXHS778SaveCellTag = 778002;
     saveRow.layer.masksToBounds = YES;
     saveRow.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [saveRow addTarget:self action:@selector(xhs778_onSavePressed) forControlEvents:UIControlEventTouchUpInside];
+    [saveRow addTarget:self action:@selector(xhs778_onSaveHighlight:) forControlEvents:UIControlEventTouchDown];
+    [saveRow addTarget:self action:@selector(xhs778_onSaveUnhighlight:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [feedback addSubview:saveRow];
 
     UIView *iconBg = [[UIView alloc] init];
@@ -974,13 +976,17 @@ static const NSInteger kXHS778SaveCellTag = 778002;
 }
 
 %new
-- (UILabel *)xhs778_findLabelInView:(UIView *)view {
-    if ([view isKindOfClass:[UILabel class]]) return (UILabel *)view;
-    for (UIView *sub in view.subviews) {
-        UILabel *l = [self xhs778_findLabelInView:sub];
-        if (l && l.text.length) return l;
-    }
-    return nil;
+- (void)xhs778_onSaveHighlight:(UIControl *)sender {
+    [UIView animateWithDuration:0.12 animations:^{
+        sender.backgroundColor = [XHS778ColorPrimary() colorWithAlphaComponent:0.08];
+    }];
+}
+
+%new
+- (void)xhs778_onSaveUnhighlight:(UIControl *)sender {
+    [UIView animateWithDuration:0.18 animations:^{
+        sender.backgroundColor = XHS778ColorCard();
+    }];
 }
 
 %new
