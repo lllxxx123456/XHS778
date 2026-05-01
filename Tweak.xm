@@ -500,8 +500,9 @@ static char kXHS778SettingsTopBarHeightKey;
     y += 24;
     [self _addSectionTitle:@"关于" y:&y width:w];
     NSArray *aboutRows = @[
-        @{@"title": @"重新阅读使用须知", @"action": @"disclaimer"},
-        @{@"title": @"版本", @"detail": @"1.0-1"}
+        @{@"title": @"阅读使用须知", @"icon": @"doc.text", @"action": @"disclaimer"},
+        @{@"title": @"TG", @"icon": @"paperplane", @"detail": @"@JiJiang_778", @"action": @"telegram"},
+        @{@"title": @"版本", @"icon": @"info.circle", @"detail": @"1.0-1"}
     ];
     [self _addRows:aboutRows y:&y width:w];
 
@@ -537,11 +538,28 @@ static char kXHS778SettingsTopBarHeightKey;
         NSDictionary *rowInfo = rows[i];
         BOOL hasDetail = [rowInfo[@"detail"] length] > 0;
         BOOL isSwitch = rowInfo[@"tag"] != nil;
+        NSString *iconName = rowInfo[@"icon"];
+        BOOL hasIcon = iconName.length > 0;
+        NSString *action = rowInfo[@"action"];
         CGFloat rowH = (isSwitch && hasDetail) ? 64 : 50;
 
         UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, totalH, sectionW, rowH)];
         [createdRows addObject:row];
         totalH += rowH;
+
+        // 左侧图标（SF Symbol 黑白）
+        CGFloat textLeft = 16;
+        if (hasIcon) {
+            UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(16, (rowH - 22) / 2.0, 22, 22)];
+            iconView.contentMode = UIViewContentModeScaleAspectFit;
+            iconView.tintColor = [UIColor labelColor];
+            if (@available(iOS 13.0, *)) {
+                UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightRegular];
+                iconView.image = [UIImage systemImageNamed:iconName withConfiguration:cfg];
+            }
+            [row addSubview:iconView];
+            textLeft = 16 + 22 + 12;
+        }
 
         UILabel *title = [[UILabel alloc] init];
         title.text = rowInfo[@"title"];
@@ -550,14 +568,14 @@ static char kXHS778SettingsTopBarHeightKey;
         [row addSubview:title];
 
         if (hasDetail && isSwitch) {
-            title.frame = CGRectMake(16, 8, sectionW - 84, 22);
-            UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, sectionW - 84, 22)];
+            title.frame = CGRectMake(textLeft, 8, sectionW - textLeft - 68, 22);
+            UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(textLeft, 32, sectionW - textLeft - 68, 22)];
             detail.text = rowInfo[@"detail"];
             detail.font = [UIFont systemFontOfSize:12];
             detail.textColor = [UIColor secondaryLabelColor];
             [row addSubview:detail];
         } else {
-            title.frame = CGRectMake(16, 0, sectionW - 84, rowH);
+            title.frame = CGRectMake(textLeft, 0, sectionW - textLeft - 68, rowH);
         }
 
         if (isSwitch) {
@@ -573,27 +591,41 @@ static char kXHS778SettingsTopBarHeightKey;
             if (sw.tag == 1) self.masterSwitch = sw;
             if (sw.tag == 2) { self.commentSwitch = sw; self.commentRow = row; }
             if (sw.tag == 4) { self.senderSwitch = sw; self.senderRow = row; }
-        } else if ([rowInfo[@"detail"] length] > 0) {
-            UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(sectionW - 120, 0, 100, rowH)];
-            detail.text = rowInfo[@"detail"];
-            detail.textAlignment = NSTextAlignmentRight;
-            detail.font = [UIFont systemFontOfSize:14];
-            detail.textColor = [UIColor secondaryLabelColor];
-            [row addSubview:detail];
-        } else if ([rowInfo[@"action"] isEqualToString:@"disclaimer"]) {
-            UIImageView *chevron = [[UIImageView alloc] initWithFrame:CGRectMake(sectionW - 26, (rowH - 14) / 2.0, 8, 14)];
-            chevron.tintColor = [UIColor tertiaryLabelColor];
-            chevron.contentMode = UIViewContentModeScaleAspectFit;
-            if (@available(iOS 13.0, *)) {
-                UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightSemibold];
-                chevron.image = [UIImage systemImageNamed:@"chevron.right" withConfiguration:cfg];
-            }
-            [row addSubview:chevron];
+        } else {
+            BOOL clickable = [action isEqualToString:@"disclaimer"] || [action isEqualToString:@"telegram"];
+            CGFloat detailRight = 16;
 
-            UIControl *control = [[UIControl alloc] initWithFrame:row.bounds];
-            control.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [control addTarget:self action:@selector(_showDisclaimer) forControlEvents:UIControlEventTouchUpInside];
-            [row addSubview:control];
+            if (clickable) {
+                UIImageView *chevron = [[UIImageView alloc] initWithFrame:CGRectMake(sectionW - 26, (rowH - 14) / 2.0, 8, 14)];
+                chevron.tintColor = [UIColor tertiaryLabelColor];
+                chevron.contentMode = UIViewContentModeScaleAspectFit;
+                if (@available(iOS 13.0, *)) {
+                    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightSemibold];
+                    chevron.image = [UIImage systemImageNamed:@"chevron.right" withConfiguration:cfg];
+                }
+                [row addSubview:chevron];
+                detailRight = 34;
+            }
+
+            if (hasDetail) {
+                UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(sectionW - 180 - detailRight + 16, 0, 180, rowH)];
+                detail.text = rowInfo[@"detail"];
+                detail.textAlignment = NSTextAlignmentRight;
+                detail.font = [UIFont systemFontOfSize:14];
+                detail.textColor = [UIColor secondaryLabelColor];
+                [row addSubview:detail];
+            }
+
+            if (clickable) {
+                UIControl *control = [[UIControl alloc] initWithFrame:row.bounds];
+                control.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                if ([action isEqualToString:@"telegram"]) {
+                    [control addTarget:self action:@selector(_openTelegram) forControlEvents:UIControlEventTouchUpInside];
+                } else {
+                    [control addTarget:self action:@selector(_showDisclaimer) forControlEvents:UIControlEventTouchUpInside];
+                }
+                [row addSubview:control];
+            }
         }
     }
 
@@ -646,6 +678,17 @@ static char kXHS778SettingsTopBarHeightKey;
     vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
     vc.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
     [self presentViewController:vc animated:YES completion:nil];
+}
+
+- (void)_openTelegram {
+    NSURL *tgApp = [NSURL URLWithString:@"tg://resolve?domain=JiJiang_778"];
+    NSURL *tgWeb = [NSURL URLWithString:@"https://t.me/JiJiang_778"];
+    UIApplication *app = [UIApplication sharedApplication];
+    if ([app canOpenURL:tgApp]) {
+        [app openURL:tgApp options:@{} completionHandler:nil];
+    } else {
+        [app openURL:tgWeb options:@{} completionHandler:nil];
+    }
 }
 
 - (void)_onClose {
@@ -912,9 +955,11 @@ static char kXHS778FeedbackScannedKey;
 
     if (active && replyIp && replyIp.section == indexPath.section) {
         if (indexPath.row == replyIp.row) {
-            // saveCell 与「回复」cell 同高
+            // saveCell 独立岛：在「回复」cell 高度基础上增加上下各 12pt 间距
             NSIndexPath *origReply = [NSIndexPath indexPathForRow:replyIp.row inSection:replyIp.section];
-            return %orig(tableView, origReply);
+            double replyH = %orig(tableView, origReply);
+            if (replyH <= 0) replyH = 52;
+            return replyH + 24;
         }
         if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
@@ -931,7 +976,9 @@ static char kXHS778FeedbackScannedKey;
     if (active && replyIp && replyIp.section == indexPath.section) {
         if (indexPath.row == replyIp.row) {
             NSIndexPath *origReply = [NSIndexPath indexPathForRow:replyIp.row inSection:replyIp.section];
-            return %orig(tableView, origReply);
+            double replyH = %orig(tableView, origReply);
+            if (replyH <= 0) replyH = 52;
+            return replyH + 24;
         }
         if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
@@ -955,16 +1002,23 @@ static char kXHS778FeedbackScannedKey;
 
     cell.backgroundColor = [UIColor clearColor];
     cell.contentView.backgroundColor = [UIColor clearColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
     cell.textLabel.text = nil;
 
-    // 用 wrapper 模拟官方 cell 的可见区域 (16, 0, w-32, 52)：左右各 16pt 内边距，背景色自动适配深浅色
+    // 独立岛样式：wrapper 距 cell 上下各 12pt、左右各 16pt，带圆角，自成一组
     UIView *wrapper = [[UIView alloc] init];
     wrapper.tag = 7780100;
     wrapper.translatesAutoresizingMaskIntoConstraints = NO;
     wrapper.userInteractionEnabled = NO;
+    wrapper.layer.cornerRadius = 10;
+    wrapper.layer.masksToBounds = YES;
     if (@available(iOS 13.0, *)) {
-        wrapper.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        wrapper.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                return [UIColor colorWithRed:28.0/255.0 green:28.0/255.0 blue:30.0/255.0 alpha:1.0];
+            }
+            return [UIColor whiteColor];
+        }];
     } else {
         wrapper.backgroundColor = [UIColor whiteColor];
     }
@@ -975,7 +1029,7 @@ static char kXHS778FeedbackScannedKey;
     icon.contentMode = UIViewContentModeScaleAspectFit;
     icon.tintColor = [UIColor labelColor];
     if (@available(iOS 13.0, *)) {
-        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightRegular];
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightRegular];
         icon.image = [UIImage systemImageNamed:@"square.and.arrow.down" withConfiguration:cfg];
     }
     icon.translatesAutoresizingMaskIntoConstraints = NO;
@@ -984,25 +1038,25 @@ static char kXHS778FeedbackScannedKey;
     UILabel *titleLabel = [[UILabel alloc] init];
     titleLabel.tag = 7780102;
     titleLabel.text = @"保存表情";
-    titleLabel.font = [UIFont systemFontOfSize:17];
+    titleLabel.font = [UIFont systemFontOfSize:15];
     titleLabel.textColor = [UIColor labelColor];
     titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [wrapper addSubview:titleLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        // wrapper 距 cell.contentView 左右各 16pt（官方 inset），上下贴满
+        // wrapper 独立岛：距 cell 上下各 12pt、左右各 16pt
         [wrapper.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
         [wrapper.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
-        [wrapper.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor],
-        [wrapper.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor],
+        [wrapper.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:12],
+        [wrapper.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-12],
 
-        // icon 在 wrapper 内 leading 16，与官方「回复」cell 内 icon 位置一致
+        // icon 在 wrapper 内 leading 16，尺寸 22x22（与官方 cell 图标视觉一致）
         [icon.leadingAnchor constraintEqualToAnchor:wrapper.leadingAnchor constant:16],
         [icon.centerYAnchor constraintEqualToAnchor:wrapper.centerYAnchor],
-        [icon.widthAnchor constraintEqualToConstant:24],
-        [icon.heightAnchor constraintEqualToConstant:24],
+        [icon.widthAnchor constraintEqualToConstant:22],
+        [icon.heightAnchor constraintEqualToConstant:22],
 
-        [titleLabel.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:18],
+        [titleLabel.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:14],
         [titleLabel.centerYAnchor constraintEqualToAnchor:wrapper.centerYAnchor],
     ]];
 
