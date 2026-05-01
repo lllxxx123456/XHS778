@@ -241,6 +241,13 @@ static void XHS778SaveImageObject(UIImage *image) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    // 强制本 VC 跟随系统真实深浅色（不被宿主 App 的 overrideUserInterfaceStyle 影响）
+    if (@available(iOS 13.0, *)) {
+        UIUserInterfaceStyle realStyle = [UIScreen mainScreen].traitCollection.userInterfaceStyle;
+        if (realStyle != UIUserInterfaceStyleUnspecified) {
+            self.overrideUserInterfaceStyle = realStyle;
+        }
+    }
     self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
     self.countdown = 3;
 
@@ -254,9 +261,24 @@ static void XHS778SaveImageObject(UIImage *image) {
                                                          cardWidth, cardHeight)];
     self.card.layer.cornerRadius = 18;
     self.card.layer.masksToBounds = YES;
+    // fallback 底色：如果 blur 在某些场景失效，至少不会透出黑色蒙层
+    if (@available(iOS 13.0, *)) {
+        self.card.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                return [UIColor colorWithRed:0.188 green:0.188 blue:0.204 alpha:1.0];
+            }
+            return [UIColor whiteColor];
+        }];
+    } else {
+        self.card.backgroundColor = [UIColor whiteColor];
+    }
     [self.view addSubview:self.card];
 
-    self.blurView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
+    UIBlurEffectStyle blurStyle = UIBlurEffectStyleLight;
+    if (@available(iOS 13.0, *)) {
+        blurStyle = UIBlurEffectStyleSystemThinMaterial;
+    }
+    self.blurView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:blurStyle]];
     self.blurView.frame = self.card.bounds;
     self.blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.card addSubview:self.blurView];
@@ -402,6 +424,13 @@ static char kXHS778SettingsTopBarHeightKey;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    // 强制本 VC 跟随系统真实深浅色（不被宿主 App 的 overrideUserInterfaceStyle 影响）
+    if (@available(iOS 13.0, *)) {
+        UIUserInterfaceStyle realStyle = [UIScreen mainScreen].traitCollection.userInterfaceStyle;
+        if (realStyle != UIUserInterfaceStyleUnspecified) {
+            self.overrideUserInterfaceStyle = realStyle;
+        }
+    }
     if (@available(iOS 13.0, *)) {
         self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
     } else {
@@ -608,11 +637,17 @@ static char kXHS778SettingsTopBarHeightKey;
             }
 
             if (hasDetail) {
-                UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(sectionW - 180 - detailRight + 16, 0, 180, rowH)];
+                // detail label 右缘：clickable 时停在 chevron 左侧 (sectionW - detailRight)，否则贴右边距 16
+                CGFloat rightEdge = clickable ? (sectionW - detailRight) : (sectionW - 16);
+                CGFloat labelW = 220;
+                CGFloat labelX = MAX(textLeft + 8, rightEdge - labelW);
+                if (rightEdge - labelX < 60) labelX = rightEdge - 60;
+                UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(labelX, 0, rightEdge - labelX, rowH)];
                 detail.text = rowInfo[@"detail"];
                 detail.textAlignment = NSTextAlignmentRight;
                 detail.font = [UIFont systemFontOfSize:14];
                 detail.textColor = [UIColor secondaryLabelColor];
+                detail.lineBreakMode = NSLineBreakByTruncatingTail;
                 [row addSubview:detail];
             }
 
@@ -1015,7 +1050,8 @@ static char kXHS778FeedbackScannedKey;
     if (@available(iOS 13.0, *)) {
         wrapper.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
             if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
-                return [UIColor colorWithRed:28.0/255.0 green:28.0/255.0 blue:30.0/255.0 alpha:1.0];
+                // FLEX 抓官方「回复」cell：RGB(0.188, 0.188, 0.204) alpha 0.99
+                return [UIColor colorWithRed:0.188 green:0.188 blue:0.204 alpha:0.99];
             }
             return [UIColor whiteColor];
         }];
