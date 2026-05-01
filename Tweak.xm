@@ -1,5 +1,5 @@
 // Tweak.xm - XHS778 小红书表情包保存助手
-// Author: lllxxx123456
+// Author: jijiang778
 // 测试版本：XHS 9.28.1
 
 #import "XHS778Headers.h"
@@ -593,7 +593,7 @@ static void XHS778ClearCache(void) {
     [self _addRows:saveRows y:&y width:w];
 
     y += 24;
-    [self _addSectionTitle:@"缓存管理（测试）" y:&y width:w];
+    [self _addSectionTitle:@"缓存管理" y:&y width:w];
     NSArray *cacheRows = @[
         @{@"title": @"清理缓存", @"icon": @"trash", @"detail": @"计算中…", @"action": @"cache"}
     ];
