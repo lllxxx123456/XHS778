@@ -411,13 +411,68 @@ static void XHS778SaveImageObject(UIImage *image) {
 
 static char kXHS778SettingsTopBarHeightKey;
 
-@interface XHS778SettingsVC : UIViewController
+#pragma mark - 缓存大小计算与清理
+
+static NSString *XHS778FormatSize(unsigned long long bytes) {
+    if (bytes < 1024ULL) return [NSString stringWithFormat:@"%llu B", bytes];
+    double kb = bytes / 1024.0;
+    if (kb < 1024.0) return [NSString stringWithFormat:@"%.1f KB", kb];
+    double mb = kb / 1024.0;
+    if (mb < 1024.0) return [NSString stringWithFormat:@"%.1f MB", mb];
+    double gb = mb / 1024.0;
+    return [NSString stringWithFormat:@"%.2f GB", gb];
+}
+
+static NSArray<NSString *> *XHS778CacheDirs(void) {
+    NSString *home = NSHomeDirectory();
+    return @[
+        [home stringByAppendingPathComponent:@"Library/Caches"],
+        [home stringByAppendingPathComponent:@"tmp"],
+    ];
+}
+
+static unsigned long long XHS778CalcCacheSize(void) {
+    unsigned long long total = 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *dir in XHS778CacheDirs()) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:dir isDirectory:&isDir] || !isDir) continue;
+        NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
+        NSString *sub;
+        while ((sub = [e nextObject])) {
+            NSString *full = [dir stringByAppendingPathComponent:sub];
+            NSDictionary *attr = [fm attributesOfItemAtPath:full error:nil];
+            if ([attr[NSFileType] isEqualToString:NSFileTypeRegular]) {
+                total += [attr[NSFileSize] unsignedLongLongValue];
+            }
+        }
+    }
+    return total;
+}
+
+static void XHS778ClearCache(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *dir in XHS778CacheDirs()) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:dir isDirectory:&isDir] || !isDir) continue;
+        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+        for (NSString *item in items) {
+            NSString *full = [dir stringByAppendingPathComponent:item];
+            [fm removeItemAtPath:full error:nil];
+        }
+    }
+}
+
+@interface XHS778SettingsVC : UIViewController <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UISwitch *masterSwitch;
 @property (nonatomic, strong) UISwitch *commentSwitch;
 @property (nonatomic, strong) UISwitch *senderSwitch;
 @property (nonatomic, strong) UIView *commentRow;
 @property (nonatomic, strong) UIView *senderRow;
+@property (nonatomic, strong) UIView *cacheRow;
+@property (nonatomic, strong) UILabel *cacheDetailLabel;
+@property (nonatomic, assign) BOOL cacheCleaning;
 @end
 
 @implementation XHS778SettingsVC
@@ -438,6 +493,17 @@ static char kXHS778SettingsTopBarHeightKey;
     }
     [self _buildNavigationBar];
     [self _buildContent];
+
+    // 左缘右滑返回手势（与系统导航返回手势一致）
+    UIScreenEdgePanGestureRecognizer *edgePan = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(_onEdgePan:)];
+    edgePan.edges = UIRectEdgeLeft;
+    edgePan.delegate = self;
+    [self.view addGestureRecognizer:edgePan];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self _refreshCacheSize];
 }
 
 - (BOOL)prefersStatusBarHidden {
@@ -525,6 +591,13 @@ static char kXHS778SettingsTopBarHeightKey;
         @{@"title": @"发送菜单保存", @"detail": @"长按表情时显示「删除 / 保存」", @"tag": @4}
     ];
     [self _addRows:saveRows y:&y width:w];
+
+    y += 24;
+    [self _addSectionTitle:@"缓存管理（测试）" y:&y width:w];
+    NSArray *cacheRows = @[
+        @{@"title": @"清理缓存", @"icon": @"trash", @"detail": @"计算中…", @"action": @"cache"}
+    ];
+    [self _addRows:cacheRows y:&y width:w];
 
     y += 24;
     [self _addSectionTitle:@"关于" y:&y width:w];
@@ -621,7 +694,9 @@ static char kXHS778SettingsTopBarHeightKey;
             if (sw.tag == 2) { self.commentSwitch = sw; self.commentRow = row; }
             if (sw.tag == 4) { self.senderSwitch = sw; self.senderRow = row; }
         } else {
-            BOOL clickable = [action isEqualToString:@"disclaimer"] || [action isEqualToString:@"telegram"];
+            BOOL clickable = [action isEqualToString:@"disclaimer"]
+                          || [action isEqualToString:@"telegram"]
+                          || [action isEqualToString:@"cache"];
             CGFloat detailRight = 16;
 
             if (clickable) {
@@ -636,19 +711,19 @@ static char kXHS778SettingsTopBarHeightKey;
                 detailRight = 34;
             }
 
+            UILabel *detailLabel = nil;
             if (hasDetail) {
-                // detail label 右缘：clickable 时停在 chevron 左侧 (sectionW - detailRight)，否则贴右边距 16
                 CGFloat rightEdge = clickable ? (sectionW - detailRight) : (sectionW - 16);
                 CGFloat labelW = 220;
                 CGFloat labelX = MAX(textLeft + 8, rightEdge - labelW);
                 if (rightEdge - labelX < 60) labelX = rightEdge - 60;
-                UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(labelX, 0, rightEdge - labelX, rowH)];
-                detail.text = rowInfo[@"detail"];
-                detail.textAlignment = NSTextAlignmentRight;
-                detail.font = [UIFont systemFontOfSize:14];
-                detail.textColor = [UIColor secondaryLabelColor];
-                detail.lineBreakMode = NSLineBreakByTruncatingTail;
-                [row addSubview:detail];
+                detailLabel = [[UILabel alloc] initWithFrame:CGRectMake(labelX, 0, rightEdge - labelX, rowH)];
+                detailLabel.text = rowInfo[@"detail"];
+                detailLabel.textAlignment = NSTextAlignmentRight;
+                detailLabel.font = [UIFont systemFontOfSize:14];
+                detailLabel.textColor = [UIColor secondaryLabelColor];
+                detailLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+                [row addSubview:detailLabel];
             }
 
             if (clickable) {
@@ -656,6 +731,10 @@ static char kXHS778SettingsTopBarHeightKey;
                 control.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
                 if ([action isEqualToString:@"telegram"]) {
                     [control addTarget:self action:@selector(_openTelegram) forControlEvents:UIControlEventTouchUpInside];
+                } else if ([action isEqualToString:@"cache"]) {
+                    [control addTarget:self action:@selector(_onCleanCache) forControlEvents:UIControlEventTouchUpInside];
+                    self.cacheRow = row;
+                    self.cacheDetailLabel = detailLabel;
                 } else {
                     [control addTarget:self action:@selector(_showDisclaimer) forControlEvents:UIControlEventTouchUpInside];
                 }
@@ -724,6 +803,100 @@ static char kXHS778SettingsTopBarHeightKey;
     } else {
         [app openURL:tgWeb options:@{} completionHandler:nil];
     }
+}
+
+#pragma mark - 缓存管理
+
+- (void)_refreshCacheSize {
+    if (self.cacheCleaning) return;
+    __weak typeof(self) ws = self;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        unsigned long long bytes = XHS778CalcCacheSize();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) ss = ws;
+            if (!ss) return;
+            ss.cacheDetailLabel.text = XHS778FormatSize(bytes);
+        });
+    });
+}
+
+- (void)_onCleanCache {
+    if (self.cacheCleaning) return;
+    NSString *detail = self.cacheDetailLabel.text ?: @"";
+    NSString *msg = [NSString stringWithFormat:
+        @"当前缓存大小：%@\n\n"
+        @"提示：小红书官方「设置 → 存储空间 → 缓存」也可清理缓存。\n"
+        @"插件清理范围为 Library/Caches 与 tmp，通常比官方清理得更彻底；\n"
+        @"如无必要可使用官方自带的清理缓存。\n\n"
+        @"是否确认用插件清理？", detail];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清理缓存"
+                                                                   message:msg
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定清理" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull act) {
+        __strong typeof(ws) ss = ws;
+        if (!ss) return;
+        ss.cacheCleaning = YES;
+        ss.cacheDetailLabel.text = @"清理中…";
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            XHS778ClearCache();
+            unsigned long long after = XHS778CalcCacheSize();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(ws) ss2 = ws;
+                if (!ss2) return;
+                ss2.cacheCleaning = NO;
+                ss2.cacheDetailLabel.text = XHS778FormatSize(after);
+                UIAlertController *done = [UIAlertController alertControllerWithTitle:@"清理完成"
+                                                                              message:[NSString stringWithFormat:@"剩余缓存：%@", XHS778FormatSize(after)]
+                                                                       preferredStyle:UIAlertControllerStyleAlert];
+                [done addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                [ss2 presentViewController:done animated:YES completion:nil];
+            });
+        });
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark - 左缘右滑返回（交互式 dismiss）
+
+- (void)_onEdgePan:(UIScreenEdgePanGestureRecognizer *)g {
+    CGFloat w = self.view.bounds.size.width;
+    CGPoint t = [g translationInView:self.view];
+    CGFloat tx = MAX(0, t.x);
+    CGFloat progress = (w > 0) ? (tx / w) : 0;
+
+    switch (g.state) {
+        case UIGestureRecognizerStateBegan:
+        case UIGestureRecognizerStateChanged: {
+            self.view.transform = CGAffineTransformMakeTranslation(tx, 0);
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed: {
+            CGFloat vx = [g velocityInView:self.view].x;
+            BOOL shouldDismiss = (progress > 0.35) || (vx > 600);
+            if (shouldDismiss) {
+                [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+                    self.view.transform = CGAffineTransformMakeTranslation(w, 0);
+                } completion:^(BOOL finished) {
+                    [self dismissViewControllerAnimated:NO completion:nil];
+                }];
+            } else {
+                [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+                    self.view.transform = CGAffineTransformIdentity;
+                } completion:nil];
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
 }
 
 - (void)_onClose {
@@ -833,7 +1006,13 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
     cell.layer.cornerRadius = 10;
     cell.layer.masksToBounds = YES;
     if (@available(iOS 13.0, *)) {
-        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        cell.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                // FLEX 抓小红书设置页官方 cell 深色：RGB(0.098, 0.098, 0.122) alpha 1.0
+                return [UIColor colorWithRed:0.098 green:0.098 blue:0.122 alpha:1.0];
+            }
+            return [UIColor whiteColor];
+        }];
     } else {
         cell.backgroundColor = [UIColor whiteColor];
     }
