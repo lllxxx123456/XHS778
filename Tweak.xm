@@ -788,136 +788,94 @@ static void XHS778SwizzleInstanceMethod(Class cls, SEL sel, IMP newImp) {
 }
 
 
-#pragma mark - Hook 设置主页：顶部插入独立 XHS778 section
+#pragma mark - Hook 设置主页：tableHeaderView 注入入口（最小侵入，绝不改 dataSource）
+
+static const NSInteger kXHS778SettingsHeaderTag = 778900;
 
 @interface XYPHSettingViewController (XHS778)
-- (UITableViewCell *)xhs778_makeEntryCell;
+- (void)xhs778_setupTableHeader;
 - (void)xhs778_presentEntry;
 @end
 
 %hook XYPHSettingViewController
 
-- (long long)numberOfSectionsInTableView:(UITableView *)tableView {
-    long long original = %orig;
-    return original + 1;
+- (void)viewDidLayoutSubviews {
+    %orig;
+    [self xhs778_setupTableHeader];
 }
 
-- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
-    if (section == 0) return 1;
-    return %orig(tableView, section - 1);
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) return [self xhs778_makeEntryCell];
-    NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
-    return %orig(tableView, origIp);
-}
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) {
-        [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        [self xhs778_presentEntry];
-        return;
-    }
-    NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
-    %orig(tableView, origIp);
-}
-
-- (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) return 56.0;
-    NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
-    return %orig(tableView, origIp);
-}
-
-- (double)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) return 56.0;
-    NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
-    return %orig(tableView, origIp);
-}
-
-- (double)tableView:(UITableView *)tableView heightForHeaderInSection:(long long)section {
-    if (section == 0) return 34.0;
-    return 16.0;
-}
-
-- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(long long)section {
-    if (section == 0) {
-        UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 34)];
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(32, 8, tableView.bounds.size.width - 64, 20)];
-        label.text = @"XHS778";
-        label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-        label.textColor = [UIColor secondaryLabelColor];
-        [view addSubview:label];
-        return view;
-    }
-    return [[UIView alloc] initWithFrame:CGRectZero];
-}
-
-- (double)tableView:(UITableView *)tableView heightForFooterInSection:(long long)section {
-    if (section == 0) return 16.0;
-    return 0.1;
-}
-
-- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) return;
-    NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row inSection:indexPath.section - 1];
-    %orig(tableView, cell, origIp);
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    [self xhs778_setupTableHeader];
 }
 
 %new
-- (UITableViewCell *)xhs778_makeEntryCell {
-    static NSString *cellId = @"XHS778EntryCell";
-    UITableViewCell *cell = [self.tableView dequeueReusableCellWithIdentifier:cellId];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellId];
+- (void)xhs778_setupTableHeader {
+    UITableView *tv = self.tableView;
+    if (!tv) return;
+    CGFloat width = tv.bounds.size.width;
+    if (width <= 0) return;
+    UIView *existing = tv.tableHeaderView;
+    if (existing.tag == kXHS778SettingsHeaderTag &&
+        fabs(existing.bounds.size.width - width) < 0.5) {
+        return;
     }
-    for (UIView *v in cell.contentView.subviews) {
-        if (v.tag == 7780001 || v.tag == 7780002 || v.tag == 7780003 || v.tag == 7780004) [v removeFromSuperview];
-    }
-    cell.backgroundColor = [UIColor clearColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.textLabel.text = nil;
 
-    CGFloat w = self.tableView.bounds.size.width;
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(18, 0, w - 36, 56)];
-    card.tag = 7780001;
-    card.layer.cornerRadius = 14;
-    card.layer.masksToBounds = YES;
+    CGFloat headerHeight = 116.0;
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, headerHeight)];
+    header.tag = kXHS778SettingsHeaderTag;
+    header.backgroundColor = [UIColor clearColor];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(32, 14, width - 64, 22)];
+    titleLabel.text = @"XHS778 表情保存助手";
+    titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    titleLabel.textColor = [UIColor secondaryLabelColor];
+    [header addSubview:titleLabel];
+
+    UIControl *cell = [[UIControl alloc] initWithFrame:CGRectMake(18, 40, width - 36, 60)];
+    cell.layer.cornerRadius = 14;
+    cell.layer.masksToBounds = YES;
     if (@available(iOS 13.0, *)) {
-        card.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
     } else {
-        card.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        cell.backgroundColor = [UIColor whiteColor];
     }
-    [cell.contentView addSubview:card];
+    [cell addTarget:self action:@selector(xhs778_presentEntry) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:cell];
 
-    UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(32, 17, 22, 22)];
-    icon.tag = 7780002;
-    icon.contentMode = UIViewContentModeScaleAspectFit;
-    icon.tintColor = [UIColor labelColor];
+    UIView *iconBox = [[UIView alloc] initWithFrame:CGRectMake(14, 14, 32, 32)];
+    iconBox.layer.cornerRadius = 8;
+    iconBox.layer.masksToBounds = YES;
+    iconBox.backgroundColor = [UIColor systemRedColor];
+    iconBox.userInteractionEnabled = NO;
+    [cell addSubview:iconBox];
+
+    UIImageView *icon = [[UIImageView alloc] initWithFrame:iconBox.bounds];
+    icon.tintColor = [UIColor whiteColor];
+    icon.contentMode = UIViewContentModeCenter;
     if (@available(iOS 13.0, *)) {
-        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightRegular];
-        icon.image = [UIImage systemImageNamed:@"face.smiling" withConfiguration:cfg];
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
+        icon.image = [UIImage systemImageNamed:@"face.smiling.fill" withConfiguration:cfg];
     }
-    [cell.contentView addSubview:icon];
+    [iconBox addSubview:icon];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(72, 0, w - 126, 56)];
-    title.tag = 7780003;
-    title.text = @"XHS778";
-    title.font = [UIFont systemFontOfSize:16];
-    title.textColor = [UIColor labelColor];
-    [cell.contentView addSubview:title];
+    UILabel *titleL = [[UILabel alloc] initWithFrame:CGRectMake(58, 0, cell.bounds.size.width - 96, 60)];
+    titleL.text = @"XHS778 表情保存";
+    titleL.font = [UIFont systemFontOfSize:16];
+    titleL.textColor = [UIColor labelColor];
+    titleL.userInteractionEnabled = NO;
+    [cell addSubview:titleL];
 
-    UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(w - 44, 21, 8, 14)];
-    arrow.tag = 7780004;
+    UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(cell.bounds.size.width - 30, 23, 8, 14)];
     arrow.tintColor = [UIColor tertiaryLabelColor];
+    arrow.userInteractionEnabled = NO;
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightSemibold];
         arrow.image = [UIImage systemImageNamed:@"chevron.right" withConfiguration:cfg];
     }
-    [cell.contentView addSubview:arrow];
+    [cell addSubview:arrow];
 
-    return cell;
+    tv.tableHeaderView = header;
 }
 
 %new
@@ -1275,11 +1233,11 @@ static void XHS778AddPreviewSaveButton(UIViewController *vc) {
 }
 
 
-#pragma mark - Hook UIButton：识别长按表情菜单中的「删除表情」/「添加到表情」按钮，旁加下载图标
+#pragma mark - Hook UIButton：长按表情菜单中「删除表情」按钮右侧追加「保存」按钮
 
-static char kXHS778MenuDownloadButtonInjectedKey;
-static const NSInteger kXHS778MenuDownloadButtonTag = 778201;
-static char kXHS778MenuSplitTitleKey;
+static const NSInteger kXHS778MenuSaveButtonTag = 778201;
+static const NSInteger kXHS778MenuVSepTag       = 778202;
+static char kXHS778MenuButtonProcessedKey;
 
 %hook UIButton
 
@@ -1289,64 +1247,58 @@ static char kXHS778MenuSplitTitleKey;
     if (!XHS778Enabled() || !XHS778SenderMenuSaveEnabled()) return;
     if (!title.length) return;
     if (![title isEqualToString:@"删除表情"] && ![title isEqualToString:@"添加到表情"]) return;
+    if (self.tag == kXHS778MenuSaveButtonTag) return;
 
     UIButton *btn = self;
-    NSString *originalTitle = [title copy];
+    NSNumber *processed = objc_getAssociatedObject(btn, &kXHS778MenuButtonProcessedKey);
+    if (processed.boolValue) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *container = btn.superview;
         if (!container) return;
-        if ([container viewWithTag:kXHS778MenuDownloadButtonTag]) return;
+        if ([container viewWithTag:kXHS778MenuSaveButtonTag]) return;
 
-        // 把原按钮（0,128,128,40）一分为二：左半保留为「删除」/「添加」，右半新增「保存」
-        CGRect oldFrame = btn.frame;
-        CGFloat halfW = oldFrame.size.width / 2.0;
-        btn.frame = CGRectMake(oldFrame.origin.x, oldFrame.origin.y, halfW, oldFrame.size.height);
-        btn.clipsToBounds = YES;
-        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-        btn.titleEdgeInsets = UIEdgeInsetsZero;
-        btn.imageEdgeInsets = UIEdgeInsetsZero;
+        objc_setAssociatedObject(btn, &kXHS778MenuButtonProcessedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        NSString *shortTitle = [originalTitle isEqualToString:@"删除表情"] ? @"删除" : @"添加";
-        objc_setAssociatedObject(btn, &kXHS778MenuSplitTitleKey, shortTitle, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        [btn setAttributedTitle:nil forState:UIControlStateNormal];
-        [btn setTitle:shortTitle forState:UIControlStateNormal];
-        btn.titleLabel.textAlignment = NSTextAlignmentCenter;
-        [btn setNeedsLayout];
-        [btn layoutIfNeeded];
-        btn.titleLabel.frame = btn.bounds;
+        // 不动原按钮，扩展容器宽度，在原按钮右侧追加「保存」按钮 + 竖线
+        CGRect bf = btn.frame;
+        CGRect cf = container.frame;
+        CGFloat needRight = bf.origin.x + bf.size.width * 2;
+        if (cf.size.width < needRight) {
+            container.frame = CGRectMake(cf.origin.x, cf.origin.y, needRight, cf.size.height);
+            container.clipsToBounds = NO;
+        }
 
-        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        saveBtn.tag = kXHS778MenuDownloadButtonTag;
-        saveBtn.frame = CGRectMake(oldFrame.origin.x + halfW, oldFrame.origin.y, halfW, oldFrame.size.height);
-        saveBtn.clipsToBounds = YES;
+        // 竖线分隔
+        UIView *vSep = [[UIView alloc] initWithFrame:CGRectMake(bf.origin.x + bf.size.width - 0.25,
+                                                                 bf.origin.y + 8,
+                                                                 0.5,
+                                                                 bf.size.height - 16)];
+        vSep.tag = kXHS778MenuVSepTag;
+        vSep.userInteractionEnabled = NO;
+        vSep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.5];
+        [container addSubview:vSep];
+
+        // 保存按钮（与原按钮等大、等位置在右侧）
+        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        saveBtn.tag = kXHS778MenuSaveButtonTag;
+        saveBtn.frame = CGRectMake(bf.origin.x + bf.size.width, bf.origin.y, bf.size.width, bf.size.height);
         saveBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
         [saveBtn setTitle:@"保存" forState:UIControlStateNormal];
         saveBtn.titleLabel.font = btn.titleLabel.font ?: [UIFont systemFontOfSize:14];
         saveBtn.tintColor = btn.tintColor;
         UIColor *textColor = [btn titleColorForState:UIControlStateNormal];
-        if (textColor) [saveBtn setTitleColor:textColor forState:UIControlStateNormal];
-        saveBtn.backgroundColor = btn.backgroundColor;
-        [saveBtn addTarget:btn action:@selector(xhs778_menuDownloadTapped:) forControlEvents:UIControlEventTouchUpInside];
+        if (!textColor) textColor = [UIColor labelColor];
+        [saveBtn setTitleColor:textColor forState:UIControlStateNormal];
+        [saveBtn setTitleColor:[textColor colorWithAlphaComponent:0.5] forState:UIControlStateHighlighted];
+        saveBtn.backgroundColor = [UIColor clearColor];
+        [saveBtn addTarget:btn action:@selector(xhs778_menuSavePressed:) forControlEvents:UIControlEventTouchUpInside];
         [container addSubview:saveBtn];
     });
 }
 
-- (void)layoutSubviews {
-    %orig;
-    NSString *shortTitle = objc_getAssociatedObject(self, &kXHS778MenuSplitTitleKey);
-    if (!shortTitle.length) return;
-    self.clipsToBounds = YES;
-    self.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.titleEdgeInsets = UIEdgeInsetsZero;
-    self.imageEdgeInsets = UIEdgeInsetsZero;
-    self.titleLabel.textAlignment = NSTextAlignmentCenter;
-    self.titleLabel.attributedText = nil;
-    self.titleLabel.text = shortTitle;
-    self.titleLabel.frame = self.bounds;
-}
-
 %new
-- (void)xhs778_menuDownloadTapped:(UIButton *)sender {
+- (void)xhs778_menuSavePressed:(UIButton *)sender {
     UIButton *originalBtn = self;
     UIView *container = originalBtn.superview;
     if (!container) {
