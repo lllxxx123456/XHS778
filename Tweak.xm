@@ -711,36 +711,8 @@ static void XHS778SwizzleInstanceMethod(Class cls, SEL sel, IMP newImp) {
             XHS778SwizzleInstanceMethod(cls, origSel, newImp);
         }
 
-        // (2) 表情详情页 MemePreviewPageController：viewDidAppear: 与 viewDidLayoutSubviews
-        Class previewCls = NSClassFromString(@"_TtC12XYNoteModule25MemePreviewPageController");
-        if (previewCls) {
-            // viewDidAppear:
-            {
-                SEL sel = @selector(viewDidAppear:);
-                Method m = class_getInstanceMethod(previewCls, sel);
-                if (m) {
-                    IMP origImp = method_getImplementation(m);
-                    IMP newImp = imp_implementationWithBlock(^(UIViewController *self, BOOL animated) {
-                        ((void (*)(id, SEL, BOOL))origImp)(self, sel, animated);
-                        XHS778AddPreviewSaveButton(self);
-                    });
-                    XHS778SwizzleInstanceMethod(previewCls, sel, newImp);
-                }
-            }
-            // viewDidLayoutSubviews
-            {
-                SEL sel = @selector(viewDidLayoutSubviews);
-                Method m = class_getInstanceMethod(previewCls, sel);
-                if (m) {
-                    IMP origImp = method_getImplementation(m);
-                    IMP newImp = imp_implementationWithBlock(^(UIViewController *self) {
-                        ((void (*)(id, SEL))origImp)(self, sel);
-                        XHS778AddPreviewSaveButton(self);
-                    });
-                    XHS778SwizzleInstanceMethod(previewCls, sel, newImp);
-                }
-            }
-        }
+        // (2) 表情详情页保存按钮的 hook 改为 %hook UIViewController，按类名字符串匹配
+        // 这样不依赖 Swift 类在 ctor 时是否已加载（_TtC12XYNoteModule25MemePreviewPageController 可能延迟加载）
     }
 }
 
@@ -778,20 +750,23 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
         return;
     }
 
-    // DYYY 风格：小灰色 section 标题 + 一行 cell（黑白图标 + 文字 + 版本号 + 箭头）
-    CGFloat headerHeight = 100.0;
+    // 与官方 cell 严格对齐：左右各 16pt margin，宽 382 高 52，cornerRadius 与官方相同
+    CGFloat cellLeftRightMargin = 16.0;
+    CGFloat cellH = 52.0;
+    CGFloat cellW = width - cellLeftRightMargin * 2;
+    CGFloat headerHeight = 22 + cellH + 14;  // section header + cell + bottom gap
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, headerHeight)];
     header.tag = kXHS778SettingsHeaderTag;
     header.backgroundColor = [UIColor clearColor];
 
-    UILabel *sectionTitle = [[UILabel alloc] initWithFrame:CGRectMake(32, 16, width - 64, 18)];
+    UILabel *sectionTitle = [[UILabel alloc] initWithFrame:CGRectMake(cellLeftRightMargin + 16, 0, width - (cellLeftRightMargin + 16) * 2, 22)];
     sectionTitle.text = @"XHS778";
     sectionTitle.font = [UIFont systemFontOfSize:13];
     sectionTitle.textColor = [UIColor secondaryLabelColor];
     [header addSubview:sectionTitle];
 
-    UIControl *cell = [[UIControl alloc] initWithFrame:CGRectMake(18, 38, width - 36, 50)];
-    cell.layer.cornerRadius = 12;
+    UIControl *cell = [[UIControl alloc] initWithFrame:CGRectMake(cellLeftRightMargin, 22, cellW, cellH)];
+    cell.layer.cornerRadius = 10;
     cell.layer.masksToBounds = YES;
     if (@available(iOS 13.0, *)) {
         cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
@@ -801,7 +776,7 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
     [cell addTarget:self action:@selector(xhs778_presentEntry) forControlEvents:UIControlEventTouchUpInside];
     [header addSubview:cell];
 
-    UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(16, 13, 24, 24)];
+    UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(16, (cellH - 24) / 2.0, 24, 24)];
     icon.contentMode = UIViewContentModeScaleAspectFit;
     icon.tintColor = [UIColor labelColor];
     icon.userInteractionEnabled = NO;
@@ -811,14 +786,14 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
     }
     [cell addSubview:icon];
 
-    UILabel *titleL = [[UILabel alloc] initWithFrame:CGRectMake(54, 0, cell.bounds.size.width - 130, 50)];
+    UILabel *titleL = [[UILabel alloc] initWithFrame:CGRectMake(54, 0, cellW - 140, cellH)];
     titleL.text = @"XHS778";
     titleL.font = [UIFont systemFontOfSize:16];
     titleL.textColor = [UIColor labelColor];
     titleL.userInteractionEnabled = NO;
     [cell addSubview:titleL];
 
-    UILabel *version = [[UILabel alloc] initWithFrame:CGRectMake(cell.bounds.size.width - 96, 0, 60, 50)];
+    UILabel *version = [[UILabel alloc] initWithFrame:CGRectMake(cellW - 96, 0, 60, cellH)];
     version.text = @"1.0-1";
     version.textAlignment = NSTextAlignmentRight;
     version.font = [UIFont systemFontOfSize:14];
@@ -826,7 +801,7 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
     version.userInteractionEnabled = NO;
     [cell addSubview:version];
 
-    UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(cell.bounds.size.width - 26, 18, 8, 14)];
+    UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(cellW - 26, (cellH - 14) / 2.0, 8, 14)];
     arrow.tintColor = [UIColor tertiaryLabelColor];
     arrow.contentMode = UIViewContentModeScaleAspectFit;
     arrow.userInteractionEnabled = NO;
@@ -988,7 +963,7 @@ static char kXHS778FeedbackScannedKey;
         if (v.tag == 7780101 || v.tag == 7780102) [v removeFromSuperview];
     }
 
-    cell.backgroundColor = [UIColor clearColor];
+    // 不设置 backgroundColor 让其继承系统默认 cell 背景，自动融入同 section 卡片（与「添加表情」相同背景）
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     cell.textLabel.text = nil;
 
@@ -1177,12 +1152,10 @@ static void XHS778AddPreviewSaveButton(UIViewController *vc) {
 }
 
 
-#pragma mark - Hook UIButton：长按发送页表情，菜单一分为二（左：删除/添加，右：保存）
-// FLEX 数据：原按钮 frame (0, 128, 128, 40)，superview 普通 UIView
-// 方案：不修改原按钮 frame，扩展 superview 宽度，把预览图水平居中到新容器，原按钮右侧加保存按钮 + 竖线
+#pragma mark - Hook UIButton：长按发送页表情，「删除/添加表情」按钮内右侧叠加圆形下载图标
+// 完全不动原按钮 frame、不动 superview、不动预览图
 
 static const NSInteger kXHS778MenuSaveButtonTag = 778201;
-static const NSInteger kXHS778MenuVSepTag       = 778202;
 static char kXHS778MenuButtonProcessedKey;
 
 %hook UIButton
@@ -1206,54 +1179,31 @@ static char kXHS778MenuButtonProcessedKey;
 
         objc_setAssociatedObject(btn, &kXHS778MenuButtonProcessedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        CGRect bf = btn.frame;             // 原按钮 frame，例 (0, 128, 128, 40)
-        CGRect cf = container.frame;
-        CGFloat origW = cf.size.width;
-        CGFloat newW  = MAX(origW, bf.origin.x + bf.size.width * 2);
+        CGRect bf = btn.frame;     // 例 (0, 128, 128, 40)
+        CGFloat iconSize = 24.0;
+        CGFloat rightInset = 10.0; // 距按钮右缘 10pt
 
-        // 扩展容器宽度（保持 origin.x 不变）
-        if (newW > origW) {
-            container.frame = CGRectMake(cf.origin.x, cf.origin.y, newW, cf.size.height);
-            container.clipsToBounds = NO;
-
-            // 容器变宽后把容器内位于按钮上方的预览图（ImageView 等）水平居中到新容器
-            CGFloat extra = newW - origW;
-            for (UIView *sub in container.subviews) {
-                if (sub == btn) continue;
-                if (sub.tag == kXHS778MenuSaveButtonTag || sub.tag == kXHS778MenuVSepTag) continue;
-                CGRect sf = sub.frame;
-                if (CGRectGetMaxY(sf) <= bf.origin.y + 0.5) {
-                    // 仅平移在按钮上方的视图（预览图等）
-                    sub.frame = CGRectMake(sf.origin.x + extra / 2.0, sf.origin.y, sf.size.width, sf.size.height);
-                }
-            }
-        }
-
-        // 保存按钮 frame：原按钮的右侧，等高等宽
+        // 圆形下载图标按钮，叠加在原按钮内的右侧空白处
         UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         saveBtn.tag = kXHS778MenuSaveButtonTag;
-        saveBtn.frame = CGRectMake(bf.origin.x + bf.size.width, bf.origin.y, bf.size.width, bf.size.height);
-        saveBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-        [saveBtn setTitle:@"保存" forState:UIControlStateNormal];
-        saveBtn.titleLabel.font = btn.titleLabel.font ?: [UIFont systemFontOfSize:14];
-        saveBtn.tintColor = btn.tintColor;
-        UIColor *textColor = [btn titleColorForState:UIControlStateNormal];
-        if (!textColor) textColor = [UIColor labelColor];
-        [saveBtn setTitleColor:textColor forState:UIControlStateNormal];
-        [saveBtn setTitleColor:[textColor colorWithAlphaComponent:0.5] forState:UIControlStateHighlighted];
-        saveBtn.backgroundColor = [UIColor clearColor];
+        saveBtn.frame = CGRectMake(CGRectGetMaxX(bf) - iconSize - rightInset,
+                                   bf.origin.y + (bf.size.height - iconSize) / 2.0,
+                                   iconSize,
+                                   iconSize);
+        saveBtn.layer.cornerRadius = iconSize / 2.0;
+        saveBtn.layer.masksToBounds = YES;
+        saveBtn.tintColor = [UIColor labelColor];
+        saveBtn.adjustsImageWhenHighlighted = YES;
+        saveBtn.contentMode = UIViewContentModeScaleAspectFit;
+        saveBtn.imageView.contentMode = UIViewContentModeScaleAspectFit;
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightRegular];
+            UIImage *img = [UIImage systemImageNamed:@"square.and.arrow.down" withConfiguration:cfg];
+            [saveBtn setImage:img forState:UIControlStateNormal];
+        }
         [saveBtn addTarget:btn action:@selector(xhs778_menuSavePressed:) forControlEvents:UIControlEventTouchUpInside];
         [container addSubview:saveBtn];
-
-        // 竖线分隔（位于两按钮之间，长度比按钮高度短一些）
-        UIView *vSep = [[UIView alloc] initWithFrame:CGRectMake(bf.origin.x + bf.size.width - 0.25,
-                                                                 bf.origin.y + 8,
-                                                                 0.5,
-                                                                 bf.size.height - 16)];
-        vSep.tag = kXHS778MenuVSepTag;
-        vSep.userInteractionEnabled = NO;
-        vSep.backgroundColor = [[UIColor separatorColor] colorWithAlphaComponent:0.5];
-        [container addSubview:vSep];
+        [container bringSubviewToFront:saveBtn];
     });
 }
 
@@ -1285,6 +1235,35 @@ static char kXHS778MenuButtonProcessedKey;
         XHS778SaveImageObject(anyIv.image);
     } else {
         XHS778ShowToast(@"未找到表情图片");
+    }
+}
+
+%end
+
+
+#pragma mark - Hook UIViewController：detect MemePreviewPageController by class name string
+// Swift 类「_TtC12XYNoteModule25MemePreviewPageController」在 ctor 时可能未加载，
+// 故改在 viewDidAppear:/viewDidLayoutSubviews 上按类名字符串匹配调用 XHS778AddPreviewSaveButton
+
+%hook UIViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
+    NSString *clsName = NSStringFromClass([self class]);
+    if (clsName.length == 0) return;
+    if ([clsName containsString:@"MemePreviewPageController"]) {
+        XHS778AddPreviewSaveButton(self);
+    }
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
+    NSString *clsName = NSStringFromClass([self class]);
+    if (clsName.length == 0) return;
+    if ([clsName containsString:@"MemePreviewPageController"]) {
+        XHS778AddPreviewSaveButton(self);
     }
 }
 
