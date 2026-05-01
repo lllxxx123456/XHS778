@@ -8,7 +8,6 @@
 
 static NSString * const kXHS778EnabledKey            = @"XHS778_Enabled";
 static NSString * const kXHS778CommentSaveEnabledKey = @"XHS778_CommentSaveEnabled";
-static NSString * const kXHS778PreviewSaveEnabledKey = @"XHS778_PreviewSaveEnabled";
 static NSString * const kXHS778SenderMenuSaveKey     = @"XHS778_SenderMenuSaveEnabled";
 static NSString * const kXHS778DisclaimerAcceptedKey = @"XHS778_DisclaimerAccepted";
 
@@ -17,9 +16,6 @@ static BOOL XHS778Enabled(void) {
 }
 static BOOL XHS778CommentSaveEnabled(void) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778CommentSaveEnabledKey];
-}
-static BOOL XHS778PreviewSaveEnabled(void) {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778PreviewSaveEnabledKey];
 }
 static BOOL XHS778SenderMenuSaveEnabled(void) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:kXHS778SenderMenuSaveKey];
@@ -397,10 +393,8 @@ static char kXHS778SettingsTopBarHeightKey;
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UISwitch *masterSwitch;
 @property (nonatomic, strong) UISwitch *commentSwitch;
-@property (nonatomic, strong) UISwitch *previewSwitch;
 @property (nonatomic, strong) UISwitch *senderSwitch;
 @property (nonatomic, strong) UIView *commentRow;
-@property (nonatomic, strong) UIView *previewRow;
 @property (nonatomic, strong) UIView *senderRow;
 @end
 
@@ -499,7 +493,6 @@ static char kXHS778SettingsTopBarHeightKey;
     [self _addSectionTitle:@"保存功能" y:&y width:w];
     NSArray *saveRows = @[
         @{@"title": @"长按评论保存", @"detail": @"在评论菜单中加入「保存表情」", @"tag": @2},
-        @{@"title": @"详情页保存", @"detail": @"在「添加表情」下方加入「保存表情」", @"tag": @3},
         @{@"title": @"发送菜单保存", @"detail": @"长按表情时显示「删除 / 保存」", @"tag": @4}
     ];
     [self _addRows:saveRows y:&y width:w];
@@ -579,7 +572,6 @@ static char kXHS778SettingsTopBarHeightKey;
             [row addSubview:sw];
             if (sw.tag == 1) self.masterSwitch = sw;
             if (sw.tag == 2) { self.commentSwitch = sw; self.commentRow = row; }
-            if (sw.tag == 3) { self.previewSwitch = sw; self.previewRow = row; }
             if (sw.tag == 4) { self.senderSwitch = sw; self.senderRow = row; }
         } else if ([rowInfo[@"detail"] length] > 0) {
             UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(sectionW - 120, 0, 100, rowH)];
@@ -630,7 +622,6 @@ static char kXHS778SettingsTopBarHeightKey;
 - (NSString *)_keyForTag:(NSInteger)tag {
     if (tag == 1) return kXHS778EnabledKey;
     if (tag == 2) return kXHS778CommentSaveEnabledKey;
-    if (tag == 3) return kXHS778PreviewSaveEnabledKey;
     if (tag == 4) return kXHS778SenderMenuSaveKey;
     return kXHS778EnabledKey;
 }
@@ -638,10 +629,8 @@ static char kXHS778SettingsTopBarHeightKey;
 - (void)_syncRows {
     BOOL master = XHS778Enabled();
     self.commentSwitch.enabled = master;
-    self.previewSwitch.enabled = master;
     self.senderSwitch.enabled = master;
     self.commentRow.alpha = master ? 1.0 : 0.45;
-    self.previewRow.alpha = master ? 1.0 : 0.45;
     self.senderRow.alpha = master ? 1.0 : 0.45;
 }
 
@@ -673,8 +662,6 @@ static void XHS778RecordCommentTouches(UIView *commentView) {
     XYAnimatedImageView *iv = XHS778FindAnimatedImageView(commentView);
     gXHS778LastLongPressedEmojiView = iv;
 }
-
-static void XHS778AddPreviewSaveButton(UIViewController *vc);
 
 // 安全的 method swizzle：如果子类未重写则给子类添加方法（避免污染父类），否则替换 IMP
 static void XHS778SwizzleInstanceMethod(Class cls, SEL sel, IMP newImp) {
@@ -711,8 +698,6 @@ static void XHS778SwizzleInstanceMethod(Class cls, SEL sel, IMP newImp) {
             XHS778SwizzleInstanceMethod(cls, origSel, newImp);
         }
 
-        // (2) 表情详情页保存按钮的 hook 改为 %hook UIViewController，按类名字符串匹配
-        // 这样不依赖 Swift 类在 ctor 时是否已加载（_TtC12XYNoteModule25MemePreviewPageController 可能延迟加载）
     }
 }
 
@@ -750,22 +735,23 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
         return;
     }
 
-    // 与官方 cell 严格对齐：左右各 16pt margin，宽 382 高 52，cornerRadius 与官方相同
-    CGFloat cellLeftRightMargin = 16.0;
+    // FLEX 抓数据：官方 cell 整体 frame = (0, 0, 382, 52)，占满 tableView 宽度（tableView 自身已做边距）
+    // 我们要让 XHS778 cell 严格匹配：x=0, width=tableView.width, h=52
     CGFloat cellH = 52.0;
-    CGFloat cellW = width - cellLeftRightMargin * 2;
+    CGFloat cellW = width;
     CGFloat headerHeight = 22 + cellH + 14;  // section header + cell + bottom gap
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, headerHeight)];
     header.tag = kXHS778SettingsHeaderTag;
     header.backgroundColor = [UIColor clearColor];
 
-    UILabel *sectionTitle = [[UILabel alloc] initWithFrame:CGRectMake(cellLeftRightMargin + 16, 0, width - (cellLeftRightMargin + 16) * 2, 22)];
+    // section 标题距 tableView 左缘 16pt（与官方组标题对齐）
+    UILabel *sectionTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, width - 32, 22)];
     sectionTitle.text = @"XHS778";
     sectionTitle.font = [UIFont systemFontOfSize:13];
     sectionTitle.textColor = [UIColor secondaryLabelColor];
     [header addSubview:sectionTitle];
 
-    UIControl *cell = [[UIControl alloc] initWithFrame:CGRectMake(cellLeftRightMargin, 22, cellW, cellH)];
+    UIControl *cell = [[UIControl alloc] initWithFrame:CGRectMake(0, 22, cellW, cellH)];
     cell.layer.cornerRadius = 10;
     cell.layer.masksToBounds = YES;
     if (@available(iOS 13.0, *)) {
@@ -776,6 +762,7 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
     [cell addTarget:self action:@selector(xhs778_presentEntry) forControlEvents:UIControlEventTouchUpInside];
     [header addSubview:cell];
 
+    // icon 距 cell 左缘 16pt（与官方 cell 内 icon 一致）
     UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(16, (cellH - 24) / 2.0, 24, 24)];
     icon.contentMode = UIViewContentModeScaleAspectFit;
     icon.tintColor = [UIColor labelColor];
@@ -839,9 +826,10 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
 %end
 
 
-#pragma mark - Hook 长按评论菜单：在「添加表情」下方插入「保存表情」
+#pragma mark - Hook 长按评论菜单：在「回复」上方插入「保存表情」
 
-static char kXHS778FeedbackAddIndexKey;
+// saveCell 插入位置：在「回复」cell 上方（即占用「回复」原本的 indexPath，原「回复」及之后的 row 全部 +1）
+static char kXHS778FeedbackReplyIndexKey;
 static char kXHS778FeedbackScannedKey;
 
 @interface XYCommentFeedbackPanelController (XHS778)
@@ -853,15 +841,15 @@ static char kXHS778FeedbackScannedKey;
 
 - (void)viewDidLoad {
     %orig;
-    objc_setAssociatedObject(self, &kXHS778FeedbackAddIndexKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &kXHS778FeedbackReplyIndexKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, &kXHS778FeedbackScannedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(long long)section {
     long long original = %orig;
     if (!XHS778Enabled() || !XHS778CommentSaveEnabled()) return original;
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
-    if (addIp && addIp.section == section) {
+    NSIndexPath *replyIp = objc_getAssociatedObject(self, &kXHS778FeedbackReplyIndexKey);
+    if (replyIp && replyIp.section == section) {
         return original + 1;
     }
     return original;
@@ -869,13 +857,13 @@ static char kXHS778FeedbackScannedKey;
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
+    NSIndexPath *replyIp = objc_getAssociatedObject(self, &kXHS778FeedbackReplyIndexKey);
 
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
+    if (active && replyIp && replyIp.section == indexPath.section) {
+        if (indexPath.row == replyIp.row) {
             return [self xhs778_makeSaveCell];
         }
-        if (indexPath.row > addIp.row + 1) {
+        if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
             return %orig(tableView, origIp);
         }
@@ -884,10 +872,10 @@ static char kXHS778FeedbackScannedKey;
     UITableViewCell *cell = %orig;
 
     NSNumber *scanned = objc_getAssociatedObject(self, &kXHS778FeedbackScannedKey);
-    if (active && !scanned.boolValue && !addIp) {
+    if (active && !scanned.boolValue && !replyIp) {
         UILabel *l = XHS778FindLabel(cell.contentView);
-        if (l.text.length && [l.text isEqualToString:@"添加表情"]) {
-            objc_setAssociatedObject(self, &kXHS778FeedbackAddIndexKey, indexPath, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (l.text.length && [l.text isEqualToString:@"回复"]) {
+            objc_setAssociatedObject(self, &kXHS778FeedbackReplyIndexKey, indexPath, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(self, &kXHS778FeedbackScannedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             __weak typeof(self) ws = self;
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -901,15 +889,15 @@ static char kXHS778FeedbackScannedKey;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
+    NSIndexPath *replyIp = objc_getAssociatedObject(self, &kXHS778FeedbackReplyIndexKey);
 
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
+    if (active && replyIp && replyIp.section == indexPath.section) {
+        if (indexPath.row == replyIp.row) {
             [tableView deselectRowAtIndexPath:indexPath animated:YES];
             [self xhs778_onSavePressed];
             return;
         }
-        if (indexPath.row > addIp.row + 1) {
+        if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
             %orig(tableView, origIp);
             return;
@@ -920,14 +908,15 @@ static char kXHS778FeedbackScannedKey;
 
 - (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
+    NSIndexPath *replyIp = objc_getAssociatedObject(self, &kXHS778FeedbackReplyIndexKey);
 
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
-            NSIndexPath *origAdd = [NSIndexPath indexPathForRow:addIp.row inSection:addIp.section];
-            return %orig(tableView, origAdd);
+    if (active && replyIp && replyIp.section == indexPath.section) {
+        if (indexPath.row == replyIp.row) {
+            // saveCell 与「回复」cell 同高
+            NSIndexPath *origReply = [NSIndexPath indexPathForRow:replyIp.row inSection:replyIp.section];
+            return %orig(tableView, origReply);
         }
-        if (indexPath.row > addIp.row + 1) {
+        if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
             return %orig(tableView, origIp);
         }
@@ -937,14 +926,14 @@ static char kXHS778FeedbackScannedKey;
 
 - (double)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
     BOOL active = XHS778Enabled() && XHS778CommentSaveEnabled();
-    NSIndexPath *addIp = objc_getAssociatedObject(self, &kXHS778FeedbackAddIndexKey);
+    NSIndexPath *replyIp = objc_getAssociatedObject(self, &kXHS778FeedbackReplyIndexKey);
 
-    if (active && addIp && addIp.section == indexPath.section) {
-        if (indexPath.row == addIp.row + 1) {
-            NSIndexPath *origAdd = [NSIndexPath indexPathForRow:addIp.row inSection:addIp.section];
-            return %orig(tableView, origAdd);
+    if (active && replyIp && replyIp.section == indexPath.section) {
+        if (indexPath.row == replyIp.row) {
+            NSIndexPath *origReply = [NSIndexPath indexPathForRow:replyIp.row inSection:replyIp.section];
+            return %orig(tableView, origReply);
         }
-        if (indexPath.row > addIp.row + 1) {
+        if (indexPath.row > replyIp.row) {
             NSIndexPath *origIp = [NSIndexPath indexPathForRow:indexPath.row - 1 inSection:indexPath.section];
             return %orig(tableView, origIp);
         }
@@ -959,15 +948,28 @@ static char kXHS778FeedbackScannedKey;
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellId];
     }
+    // 清理已存在的子视图（reuse 场景）
     for (UIView *v in cell.contentView.subviews) {
-        if (v.tag == 7780101 || v.tag == 7780102) [v removeFromSuperview];
+        if (v.tag == 7780100 || v.tag == 7780101 || v.tag == 7780102) [v removeFromSuperview];
     }
 
-    // 不设置 backgroundColor 让其继承系统默认 cell 背景，自动融入同 section 卡片（与「添加表情」相同背景）
+    cell.backgroundColor = [UIColor clearColor];
+    cell.contentView.backgroundColor = [UIColor clearColor];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     cell.textLabel.text = nil;
 
-    // 复制官方「添加表情」cell 的样式：左缘 32, icon 24x24, label leading from icon 18, 17pt labelColor
+    // 用 wrapper 模拟官方 cell 的可见区域 (16, 0, w-32, 52)：左右各 16pt 内边距，背景色自动适配深浅色
+    UIView *wrapper = [[UIView alloc] init];
+    wrapper.tag = 7780100;
+    wrapper.translatesAutoresizingMaskIntoConstraints = NO;
+    wrapper.userInteractionEnabled = NO;
+    if (@available(iOS 13.0, *)) {
+        wrapper.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+    } else {
+        wrapper.backgroundColor = [UIColor whiteColor];
+    }
+    [cell.contentView addSubview:wrapper];
+
     UIImageView *icon = [[UIImageView alloc] init];
     icon.tag = 7780101;
     icon.contentMode = UIViewContentModeScaleAspectFit;
@@ -977,7 +979,7 @@ static char kXHS778FeedbackScannedKey;
         icon.image = [UIImage systemImageNamed:@"square.and.arrow.down" withConfiguration:cfg];
     }
     icon.translatesAutoresizingMaskIntoConstraints = NO;
-    [cell.contentView addSubview:icon];
+    [wrapper addSubview:icon];
 
     UILabel *titleLabel = [[UILabel alloc] init];
     titleLabel.tag = 7780102;
@@ -985,16 +987,23 @@ static char kXHS778FeedbackScannedKey;
     titleLabel.font = [UIFont systemFontOfSize:17];
     titleLabel.textColor = [UIColor labelColor];
     titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [cell.contentView addSubview:titleLabel];
+    [wrapper addSubview:titleLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [icon.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:32],
-        [icon.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        // wrapper 距 cell.contentView 左右各 16pt（官方 inset），上下贴满
+        [wrapper.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
+        [wrapper.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+        [wrapper.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor],
+        [wrapper.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor],
+
+        // icon 在 wrapper 内 leading 16，与官方「回复」cell 内 icon 位置一致
+        [icon.leadingAnchor constraintEqualToAnchor:wrapper.leadingAnchor constant:16],
+        [icon.centerYAnchor constraintEqualToAnchor:wrapper.centerYAnchor],
         [icon.widthAnchor constraintEqualToConstant:24],
         [icon.heightAnchor constraintEqualToConstant:24],
 
         [titleLabel.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:18],
-        [titleLabel.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [titleLabel.centerYAnchor constraintEqualToAnchor:wrapper.centerYAnchor],
     ]];
 
     return cell;
@@ -1019,137 +1028,6 @@ static char kXHS778FeedbackScannedKey;
 }
 
 %end
-
-
-#pragma mark - 表情详情页：MemePreviewPageController 在「添加表情」下方加同样胶囊「保存表情」按钮
-
-static char kXHS778PreviewSaveButtonInjectedKey;
-static const NSInteger kXHS778PreviewSaveButtonTag = 778303;
-
-@interface XHS778PreviewBtnTarget : NSObject
-+ (instancetype)sharedTarget;
-- (void)onPreviewSavePressed:(UIButton *)sender;
-@end
-
-@implementation XHS778PreviewBtnTarget
-+ (instancetype)sharedTarget {
-    static XHS778PreviewBtnTarget *t = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ t = [[self alloc] init]; });
-    return t;
-}
-- (void)onPreviewSavePressed:(UIButton *)sender {
-    // 从按钮一路向上找到 controller 的 view，递归找 emoji image view
-    UIView *v = sender.superview;
-    while (v && ![v.nextResponder isKindOfClass:[UIViewController class]]) v = v.superview;
-    UIView *root = v ?: sender.superview;
-    XYAnimatedImageView *iv = XHS778FindAnimatedImageView(root);
-    if (iv) {
-        XHS778SaveEmojiFromImageView(iv);
-    } else {
-        UIImageView *anyIv = nil;
-        NSMutableArray *q = [NSMutableArray arrayWithObject:root];
-        while (q.count > 0) {
-            UIView *cur = q.firstObject;
-            [q removeObjectAtIndex:0];
-            if ([cur isKindOfClass:[UIImageView class]] && ((UIImageView *)cur).image) {
-                anyIv = (UIImageView *)cur; break;
-            }
-            [q addObjectsFromArray:cur.subviews];
-        }
-        if (anyIv && anyIv.image) {
-            XHS778SaveImageObject(anyIv.image);
-        } else {
-            XHS778ShowToast(@"未找到表情图片");
-        }
-    }
-}
-@end
-
-// 优先按 FLEX 抓到的精确类名「_TtCC12XYNoteModule25MemePreviewPageController13AddMemeButton」匹配
-// 找不到再退回到按 currentTitle 文字匹配
-static UIButton *XHS778FindAddMemeButton(UIView *root) {
-    if (!root) return nil;
-    static Class addBtnCls = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        addBtnCls = NSClassFromString(@"_TtCC12XYNoteModule25MemePreviewPageController13AddMemeButton");
-    });
-
-    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
-    UIButton *byClass = nil;
-    UIButton *byTitle = nil;
-    while (q.count > 0) {
-        UIView *cur = q.firstObject;
-        [q removeObjectAtIndex:0];
-        if ([cur isKindOfClass:[UIButton class]]) {
-            UIButton *b = (UIButton *)cur;
-            if (b.tag == kXHS778PreviewSaveButtonTag) {
-                [q addObjectsFromArray:cur.subviews];
-                continue;
-            }
-            if (addBtnCls && [b isKindOfClass:addBtnCls]) {
-                byClass = b;
-                break;
-            }
-            if (!byTitle && ([b.currentTitle isEqualToString:@"添加表情"] || [b.currentTitle isEqualToString:@"已添加表情"])) {
-                byTitle = b;
-            }
-        }
-        [q addObjectsFromArray:cur.subviews];
-    }
-    return byClass ?: byTitle;
-}
-
-static void XHS778AddPreviewSaveButton(UIViewController *vc) {
-    if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
-    if (!vc || !vc.viewLoaded) return;
-    UIView *root = vc.view;
-    if (!root || root.bounds.size.width <= 0) return;
-
-    UIButton *addBtn = XHS778FindAddMemeButton(root);
-    if (!addBtn || !addBtn.superview) return;
-
-    UIView *parent = addBtn.superview;
-    CGRect af = addBtn.frame;
-    // 在「添加表情」按钮正下方 8pt 处放同样大小的「保存表情」按钮
-    CGRect targetFrame = CGRectMake(af.origin.x, CGRectGetMaxY(af) + 8, af.size.width, af.size.height);
-
-    UIButton *saveBtn = (UIButton *)[parent viewWithTag:kXHS778PreviewSaveButtonTag];
-    if (!saveBtn) {
-        saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        saveBtn.tag = kXHS778PreviewSaveButtonTag;
-        [saveBtn setTitle:@"保存表情" forState:UIControlStateNormal];
-        [saveBtn addTarget:[XHS778PreviewBtnTarget sharedTarget]
-                    action:@selector(onPreviewSavePressed:)
-          forControlEvents:UIControlEventTouchUpInside];
-        [parent addSubview:saveBtn];
-    }
-    saveBtn.tag = kXHS778PreviewSaveButtonTag;
-    saveBtn.frame = targetFrame;
-
-    // 复制原按钮样式
-    UIColor *bgColor = [UIColor systemRedColor];
-    UIColor *titleColor = [UIColor whiteColor];
-    UIFont *font = addBtn.titleLabel.font ?: [UIFont systemFontOfSize:14];
-    CGFloat corner = af.size.height / 2.0;
-    if (addBtn.backgroundColor && ![addBtn.currentTitle isEqualToString:@"已添加表情"]) {
-        bgColor = addBtn.backgroundColor;
-    }
-    UIColor *tc = [addBtn titleColorForState:UIControlStateNormal];
-    if (tc) titleColor = tc;
-    if (addBtn.layer.cornerRadius > 0) corner = addBtn.layer.cornerRadius;
-
-    saveBtn.backgroundColor = bgColor;
-    saveBtn.layer.cornerRadius = corner;
-    saveBtn.layer.masksToBounds = YES;
-    [saveBtn setTitleColor:titleColor forState:UIControlStateNormal];
-    [saveBtn setTitleColor:[titleColor colorWithAlphaComponent:0.6] forState:UIControlStateHighlighted];
-    saveBtn.titleLabel.font = font;
-    [parent bringSubviewToFront:saveBtn];
-
-    objc_setAssociatedObject(vc, &kXHS778PreviewSaveButtonInjectedKey, saveBtn, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
 
 
 #pragma mark - Hook UIButton：长按发送页表情，「删除/添加表情」按钮内右侧叠加圆形下载图标
@@ -1235,35 +1113,6 @@ static char kXHS778MenuButtonProcessedKey;
         XHS778SaveImageObject(anyIv.image);
     } else {
         XHS778ShowToast(@"未找到表情图片");
-    }
-}
-
-%end
-
-
-#pragma mark - Hook UIViewController：detect MemePreviewPageController by class name string
-// Swift 类「_TtC12XYNoteModule25MemePreviewPageController」在 ctor 时可能未加载，
-// 故改在 viewDidAppear:/viewDidLayoutSubviews 上按类名字符串匹配调用 XHS778AddPreviewSaveButton
-
-%hook UIViewController
-
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
-    NSString *clsName = NSStringFromClass([self class]);
-    if (clsName.length == 0) return;
-    if ([clsName containsString:@"MemePreviewPageController"]) {
-        XHS778AddPreviewSaveButton(self);
-    }
-}
-
-- (void)viewDidLayoutSubviews {
-    %orig;
-    if (!XHS778Enabled() || !XHS778PreviewSaveEnabled()) return;
-    NSString *clsName = NSStringFromClass([self class]);
-    if (clsName.length == 0) return;
-    if ([clsName containsString:@"MemePreviewPageController"]) {
-        XHS778AddPreviewSaveButton(self);
     }
 }
 
