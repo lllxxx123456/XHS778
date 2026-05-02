@@ -1317,6 +1317,12 @@ static BOOL XHS778IsSenderMenuTitle(NSString *t) {
         || [t isEqualToString:@"收藏表情"];
 }
 
+// Forward declaration：%new 方法在编译期不会生成 @interface 声明，需显式 category 声明供消息发送表达式识别
+@interface UIButton (XHS778)
+- (void)xhs778_tryAttachSaveButton;
+- (void)xhs778_menuSavePressed:(UIButton *)sender;
+@end
+
 %hook UIButton
 
 %new
