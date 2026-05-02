@@ -1065,7 +1065,8 @@ static const NSInteger kXHS778SettingsHeaderTag = 778900;
         __strong typeof(ws) ss = ws;
         if (!ss) return;
         XHS778SettingsVC *vc = [[XHS778SettingsVC alloc] init];
-        vc.modalPresentationStyle = UIModalPresentationFullScreen;
+        // OverFullScreen 保留底层（小红书设置页）在视图树中，右滑返回时能直接露出官方设置界面
+        vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
         vc.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
         [ss presentViewController:vc animated:YES completion:nil];
     };
@@ -1301,57 +1302,129 @@ static char kXHS778FeedbackScannedKey;
 
 #pragma mark - Hook UIButton：长按发送页表情，「删除/添加表情」按钮内右侧叠加圆形下载图标
 // 完全不动原按钮 frame、不动 superview、不动预览图
+// iOS 15/16/17/18 通用策略：多重触发（setTitle + layoutSubviews + didMoveToSuperview），幂等添加
 
 static const NSInteger kXHS778MenuSaveButtonTag = 778201;
-static char kXHS778MenuButtonProcessedKey;
+
+static BOOL XHS778IsSenderMenuTitle(NSString *t) {
+    if (t.length == 0) return NO;
+    // 快速首字符剪枝：删(0x5220) / 添(0x6DFB) / 收(0x6536，为了兼容某些版本"收藏表情"字样)
+    unichar c = [t characterAtIndex:0];
+    if (c != 0x5220 && c != 0x6DFB && c != 0x6536) return NO;
+    return [t isEqualToString:@"删除表情"]
+        || [t isEqualToString:@"添加到表情"]
+        || [t isEqualToString:@"添加表情"]
+        || [t isEqualToString:@"收藏表情"];
+}
 
 %hook UIButton
+
+%new
+- (void)xhs778_tryAttachSaveButton {
+    if (!XHS778Enabled() || !XHS778SenderMenuSaveEnabled()) return;
+    UIButton *btn = self;
+    if (btn.tag == kXHS778MenuSaveButtonTag) return;
+
+    NSString *title = [btn titleForState:UIControlStateNormal];
+    if (!XHS778IsSenderMenuTitle(title)) {
+        // iOS 15+ 若用 UIButtonConfiguration，titleForState 可能为空，再尝试 configuration.title
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *cfg = btn.configuration;
+            if (cfg && [cfg isKindOfClass:NSClassFromString(@"UIButtonConfiguration")]) {
+                if (!XHS778IsSenderMenuTitle(cfg.title)) return;
+            } else {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
+    UIView *container = btn.superview;
+    if (!container) return;
+
+    CGRect bf = btn.frame;
+    if (bf.size.width < 20 || bf.size.height < 20) return;  // 尚未布局完成
+    CGFloat iconSize = 24.0;
+    CGFloat rightInset = 10.0;
+    CGRect expected = CGRectMake(CGRectGetMaxX(bf) - iconSize - rightInset,
+                                 bf.origin.y + (bf.size.height - iconSize) / 2.0,
+                                 iconSize, iconSize);
+
+    UIView *found = [container viewWithTag:kXHS778MenuSaveButtonTag];
+    if ([found isKindOfClass:[UIButton class]]) {
+        if (!CGRectEqualToRect(found.frame, expected)) {
+            found.frame = expected;
+        }
+        [container bringSubviewToFront:found];
+        return;
+    }
+
+    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    saveBtn.tag = kXHS778MenuSaveButtonTag;
+    saveBtn.frame = expected;
+    saveBtn.layer.cornerRadius = iconSize / 2.0;
+    saveBtn.layer.masksToBounds = YES;
+    saveBtn.tintColor = [UIColor labelColor];
+    saveBtn.adjustsImageWhenHighlighted = YES;
+    saveBtn.contentMode = UIViewContentModeScaleAspectFit;
+    saveBtn.imageView.contentMode = UIViewContentModeScaleAspectFit;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightRegular];
+        UIImage *img = [UIImage systemImageNamed:@"square.and.arrow.down" withConfiguration:cfg];
+        [saveBtn setImage:img forState:UIControlStateNormal];
+    }
+    [saveBtn addTarget:btn action:@selector(xhs778_menuSavePressed:) forControlEvents:UIControlEventTouchUpInside];
+    [container addSubview:saveBtn];
+    [container bringSubviewToFront:saveBtn];
+}
 
 - (void)setTitle:(NSString *)title forState:(UIControlState)state {
     %orig;
     if (state != UIControlStateNormal) return;
-    if (!XHS778Enabled() || !XHS778SenderMenuSaveEnabled()) return;
-    if (!title.length) return;
-    if (![title isEqualToString:@"删除表情"] && ![title isEqualToString:@"添加到表情"]) return;
+    if (!XHS778IsSenderMenuTitle(title)) return;
     if (self.tag == kXHS778MenuSaveButtonTag) return;
 
-    UIButton *btn = self;
-    NSNumber *processed = objc_getAssociatedObject(btn, &kXHS778MenuButtonProcessedKey);
-    if (processed.boolValue) return;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIView *container = btn.superview;
-        if (!container) return;
-        if ([container viewWithTag:kXHS778MenuSaveButtonTag]) return;
-
-        objc_setAssociatedObject(btn, &kXHS778MenuButtonProcessedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-        CGRect bf = btn.frame;     // 例 (0, 128, 128, 40)
-        CGFloat iconSize = 24.0;
-        CGFloat rightInset = 10.0; // 距按钮右缘 10pt
-
-        // 圆形下载图标按钮，叠加在原按钮内的右侧空白处
-        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        saveBtn.tag = kXHS778MenuSaveButtonTag;
-        saveBtn.frame = CGRectMake(CGRectGetMaxX(bf) - iconSize - rightInset,
-                                   bf.origin.y + (bf.size.height - iconSize) / 2.0,
-                                   iconSize,
-                                   iconSize);
-        saveBtn.layer.cornerRadius = iconSize / 2.0;
-        saveBtn.layer.masksToBounds = YES;
-        saveBtn.tintColor = [UIColor labelColor];
-        saveBtn.adjustsImageWhenHighlighted = YES;
-        saveBtn.contentMode = UIViewContentModeScaleAspectFit;
-        saveBtn.imageView.contentMode = UIViewContentModeScaleAspectFit;
-        if (@available(iOS 13.0, *)) {
-            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightRegular];
-            UIImage *img = [UIImage systemImageNamed:@"square.and.arrow.down" withConfiguration:cfg];
-            [saveBtn setImage:img forState:UIControlStateNormal];
-        }
-        [saveBtn addTarget:btn action:@selector(xhs778_menuSavePressed:) forControlEvents:UIControlEventTouchUpInside];
-        [container addSubview:saveBtn];
-        [container bringSubviewToFront:saveBtn];
+    __weak typeof(self) ws = self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [ws xhs778_tryAttachSaveButton]; });
+    // 兜底：延迟再试一次，处理 setTitle 时 superview 尚未就绪 / layout 尚未完成的情况
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [ws xhs778_tryAttachSaveButton];
     });
+}
+
+- (void)layoutSubviews {
+    %orig;
+    // 快速剪枝：只处理 title 匹配的按钮，对其他 UIButton 无感
+    if (self.tag == kXHS778MenuSaveButtonTag) return;
+    NSString *t = [self titleForState:UIControlStateNormal];
+    if (XHS778IsSenderMenuTitle(t)) {
+        [self xhs778_tryAttachSaveButton];
+        return;
+    }
+    // iOS 15+ UIButtonConfiguration 兜底
+    if (@available(iOS 15.0, *)) {
+        UIButtonConfiguration *cfg = self.configuration;
+        if (cfg && XHS778IsSenderMenuTitle(cfg.title)) {
+            [self xhs778_tryAttachSaveButton];
+        }
+    }
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    if (self.tag == kXHS778MenuSaveButtonTag) return;
+    NSString *t = [self titleForState:UIControlStateNormal];
+    if (XHS778IsSenderMenuTitle(t)) {
+        __weak typeof(self) ws = self;
+        dispatch_async(dispatch_get_main_queue(), ^{ [ws xhs778_tryAttachSaveButton]; });
+    } else if (@available(iOS 15.0, *)) {
+        UIButtonConfiguration *cfg = self.configuration;
+        if (cfg && XHS778IsSenderMenuTitle(cfg.title)) {
+            __weak typeof(self) ws = self;
+            dispatch_async(dispatch_get_main_queue(), ^{ [ws xhs778_tryAttachSaveButton]; });
+        }
+    }
 }
 
 %new
